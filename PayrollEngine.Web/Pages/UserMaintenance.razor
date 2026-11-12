@@ -1,0 +1,552 @@
+﻿@page "/user-maintenance"
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Web
+@using PayrollEngine.Web.Services
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>User karbantartás</PageTitle>
+
+<main class="user-maintenance-page">
+    <header class="user-maintenance-header">
+        <button type="button" class="user-maintenance-secondary" @onclick="BackToApps">Vissza az alkalmazásokhoz</button>
+        <h1>User karbantartás</h1>
+    </header>
+
+    <section class="user-maintenance-card">
+        <h2>Felhasználók</h2>
+        <div class="user-maintenance-search">
+            <input @bind="_search" @bind:event="oninput" @onkeydown="HandleSearchKeyDown"
+                   placeholder="Keresés felhasználónév alapján" />
+            <select @bind="_activeFilter">
+                <option value="">Minden állapot</option>
+                <option value="true">Aktív</option>
+                <option value="false">Inaktív</option>
+            </select>
+            <button type="button" class="user-maintenance-secondary" @onclick="LoadUsersAsync" disabled="@_isLoading">
+                @(_isLoading ? "Betöltés…" : "Keresés")
+            </button>
+        </div>
+
+        @if (_isLoading && _users.Count == 0)
+        {
+            <p class="user-maintenance-muted">Felhasználók betöltése…</p>
+        }
+        else if (_hasLoaded && _users.Count == 0)
+        {
+            <p class="user-maintenance-muted">Nem található felhasználó.</p>
+        }
+        else if (_users.Count > 0)
+        {
+            <div class="user-maintenance-table-wrap">
+                <table class="user-maintenance-table">
+                    <thead><tr><th>Felhasználónév</th><th>Állapot</th><th>Művelet</th></tr></thead>
+                    <tbody>
+                        @foreach (var user in _users)
+                        {
+                            <tr @key="user.UserId">
+                                <td>@user.UserName</td>
+                                <td>@(user.IsActive ? "Aktív" : "Inaktív")</td>
+                                <td>
+                                    <div class="user-maintenance-row-actions">
+                                        <button type="button" @onclick="() => EditUser(user)">Szerkesztés</button>
+                                        <button type="button" @onclick="() => OpenPasswordDialog(user)">Jelszó beállítása</button>
+                                        <button type="button" @onclick="() => OpenRoleDialogAsync(user)">Szerep hozzárendelés karbantartása</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="user-maintenance-card">
+        <h2>@(_userId.HasValue ? "Felhasználó módosítása" : "Új felhasználó")</h2>
+        <div class="user-maintenance-form">
+            <label>
+                Felhasználónév <span>*</span>
+                <input @bind="_userName" maxlength="100" />
+            </label>
+            @if (!_userId.HasValue)
+            {
+                <label>
+                    Jelszó <span>*</span>
+                    <input type="password" @bind="_newUserPassword" maxlength="255" />
+                </label>
+            }
+            else
+            {
+                <label class="user-maintenance-checkbox">
+                    <input type="checkbox" @bind="_isActive" /> Aktív felhasználó
+                </label>
+            }
+        </div>
+        <div class="user-maintenance-actions">
+            @if (_userId.HasValue)
+            {
+                <button type="button" class="user-maintenance-secondary" @onclick="NewUser" disabled="@_isSaving">Új felhasználó</button>
+            }
+            <button type="button" class="user-maintenance-save" @onclick="SaveUserAsync" disabled="@_isSaving">
+                @(_isSaving ? "Mentés…" : _userId.HasValue ? "Módosítások mentése" : "Felhasználó létrehozása")
+            </button>
+        </div>
+    </section>
+
+    @if (_passwordUser is not null)
+    {
+        <div class="user-maintenance-backdrop" @onclick="ClosePasswordDialog">
+            <section class="user-maintenance-modal" role="dialog" aria-modal="true"
+                     aria-labelledby="password-dialog-title" @onclick:stopPropagation="true">
+                <header>
+                    <div><h2 id="password-dialog-title">Jelszó beállítása</h2><p>Felhasználó: @_passwordUser.UserName</p></div>
+                    <button type="button" class="user-maintenance-close" @onclick="ClosePasswordDialog">×</button>
+                </header>
+                <label>
+                    Új jelszó
+                    <input type="password" @bind="_passwordValue" maxlength="255" />
+                </label>
+                <div class="user-maintenance-actions">
+                    <button type="button" class="user-maintenance-secondary" @onclick="ClosePasswordDialog" disabled="@_isSaving">Mégse</button>
+                    <button type="button" class="user-maintenance-save" @onclick="SetPasswordAsync" disabled="@_isSaving">
+                        @(_isSaving ? "Mentés…" : "Jelszó mentése")
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+
+    @if (_roleUser is not null)
+    {
+        <div class="user-maintenance-backdrop" @onclick="CloseRoleDialog">
+            <section class="user-maintenance-modal user-maintenance-role-modal" role="dialog" aria-modal="true"
+                     aria-labelledby="role-dialog-title" @onclick:stopPropagation="true">
+                <header>
+                    <div>
+                        <h2 id="role-dialog-title">Szerep hozzárendelés karbantartása</h2>
+                        <p>Felhasználó: @_roleUser.UserName</p>
+                    </div>
+                    <button type="button" class="user-maintenance-close" aria-label="Ablak bezárása" @onclick="CloseRoleDialog">×</button>
+                </header>
+
+                <section class="user-maintenance-role-section">
+                    <h3>Hozzárendelt szerepek</h3>
+                    @if (_isLoadingRoles)
+                    {
+                        <p class="user-maintenance-muted">Szerepek betöltése…</p>
+                    }
+                    else if (_roleAssignments.Count == 0)
+                    {
+                        <p class="user-maintenance-muted">Ehhez a felhasználóhoz még nincs szerep hozzárendelve.</p>
+                    }
+                    else
+                    {
+                        <div class="user-maintenance-table-wrap">
+                            <table class="user-maintenance-table">
+                                <thead>
+                                    <tr><th>Szerep</th><th>Érvényesség kezdete</th><th>Érvényesség vége</th><th>Állapot</th><th>Művelet</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var assignment in _roleAssignments)
+                                    {
+                                        <tr @key="(assignment.RoleId, assignment.ValidFrom)">
+                                            <td>@assignment.Code — @assignment.RoleName</td>
+                                            <td>@FormatDate(assignment.ValidFrom)</td>
+                                            <td>@(assignment.ValidTo.HasValue ? FormatDate(assignment.ValidTo.Value) : "—")</td>
+                                            <td>@GetAssignmentStatus(assignment)</td>
+                                            <td>
+                                                <button type="button" class="user-maintenance-delete"
+                                                        @onclick="() => DeleteRoleAssignmentAsync(assignment)"
+                                                        disabled="@(_isDeletingRoleAssignment || _isAssigningRole)">
+                                                    @(_deletingRoleAssignment == (assignment.RoleId, assignment.ValidFrom) ? "Törlés…" : "Törlés")
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+
+                <section class="user-maintenance-role-section">
+                    <h3>Új szerep hozzárendelése</h3>
+                    @if (_isLoadingRoleOptions)
+                    {
+                        <p class="user-maintenance-muted">Választható szerepek betöltése…</p>
+                    }
+                    else if (_availableRoles.Count == 0)
+                    {
+                        <p class="user-maintenance-muted">Nincs aktív, hozzárendelhető szerep.</p>
+                    }
+                    else
+                    {
+                        <div class="user-maintenance-role-form">
+                            <label>
+                                Szerepkör
+                                <select @bind="_selectedRoleId">
+                                    <option value="0">Válassz szerepkört</option>
+                                    @foreach (var role in _availableRoles)
+                                    {
+                                        <option value="@role.RoleId">@role.Code — @role.RoleName</option>
+                                    }
+                                </select>
+                            </label>
+                            <label>
+                                Érvényesség kezdete
+                                <input type="text" @bind="_roleValidFrom" />
+                            </label>
+                            <label>
+                                Érvényesség vége (opcionális)
+                                <input type="text" @bind="_roleValidTo" />
+                            </label>
+                        </div>
+                    }
+                </section>
+
+                <div class="user-maintenance-actions">
+                    <button type="button" class="user-maintenance-secondary" @onclick="CloseRoleDialog" disabled="@_isAssigningRole">Bezárás</button>
+                    @if (_availableRoles.Count > 0)
+                    {
+                        <button type="button" class="user-maintenance-save" @onclick="AssignRoleAsync"
+                                disabled="@(_isAssigningRole || _isLoadingRoles || _isLoadingRoleOptions)">
+                            @(_isAssigningRole ? "Mentés…" : "Szerep hozzárendelése")
+                        </button>
+                    }
+                </div>
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly List<UserItem> _users = [];
+    private string _search = string.Empty;
+    private string _activeFilter = string.Empty;
+    private string _userName = string.Empty;
+    private string _newUserPassword = string.Empty;
+    private string _passwordValue = string.Empty;
+    private int? _userId;
+    private bool _isActive = true;
+    private bool _isLoading;
+    private bool _hasLoaded;
+    private bool _isSaving;
+    private UserItem? _passwordUser;
+    private UserItem? _roleUser;
+    private readonly List<RoleItem> _availableRoles = [];
+    private readonly List<RoleAssignmentItem> _roleAssignments = [];
+    private int _selectedRoleId;
+    private string _roleValidFrom = DateTime.Today.ToString("yyyy-MM-dd");
+    private string _roleValidTo = string.Empty;
+    private bool _isLoadingRoles;
+    private bool _isLoadingRoleOptions;
+    private bool _isAssigningRole;
+    private bool _isDeletingRoleAssignment;
+    private (int RoleId, DateOnly ValidFrom)? _deletingRoleAssignment;
+
+    protected override Task OnInitializedAsync() => LoadUsersAsync();
+
+    private async Task LoadUsersAsync()
+    {
+        if (_isLoading) return;
+        _isLoading = true;
+        try
+        {
+            var query = new List<string>();
+            if (!string.IsNullOrWhiteSpace(_search)) query.Add($"search={Uri.EscapeDataString(_search.Trim())}");
+            if (!string.IsNullOrWhiteSpace(_activeFilter)) query.Add($"isActive={_activeFilter}");
+            var url = query.Count == 0 ? "api/users" : $"api/users?{string.Join("&", query)}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await Api.SendAsync(request, fallbackErrorMessage: "A felhasználók betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode)
+            {
+                _users.Clear();
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<List<UserItem>>(JsonOptions);
+            _users.Clear();
+            _users.AddRange(result ?? []);
+            _hasLoaded = true;
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A felhasználók betöltése közben hiba történt."); }
+        finally { _isLoading = false; }
+    }
+
+    private async Task SaveUserAsync()
+    {
+        if (_isSaving) return;
+        if (string.IsNullOrWhiteSpace(_userName))
+        {
+            Feedback.ShowError("A felhasználónév megadása kötelező.");
+            return;
+        }
+        var isNew = !_userId.HasValue;
+        if (isNew && string.IsNullOrWhiteSpace(_newUserPassword))
+        {
+            Feedback.ShowError("Új felhasználó létrehozásához jelszó szükséges.");
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            using var request = new HttpRequestMessage(
+                isNew ? HttpMethod.Post : HttpMethod.Put,
+                isNew ? "api/users" : $"api/users/{_userId}");
+            request.Content = isNew
+                ? JsonContent.Create(new CreateUserRequest(_userName.Trim(), _newUserPassword), options: JsonOptions)
+                : JsonContent.Create(new UpdateUserRequest(_userName.Trim(), _isActive), options: JsonOptions);
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: isNew ? "A felhasználó létrejött." : "A felhasználó adatai módosultak.",
+                fallbackErrorMessage: "A felhasználó mentése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            NewUser();
+            await LoadUsersAsync();
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A felhasználó mentése közben hiba történt."); }
+        finally { _isSaving = false; }
+    }
+
+    private async Task SetPasswordAsync()
+    {
+        if (_isSaving || _passwordUser is null) return;
+        if (string.IsNullOrWhiteSpace(_passwordValue))
+        {
+            Feedback.ShowError("Az új jelszó megadása kötelező.");
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/users/{_passwordUser.UserId}/password")
+            {
+                Content = JsonContent.Create(new SetUserPasswordRequest(_passwordValue), options: JsonOptions)
+            };
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A jelszó módosult.",
+                fallbackErrorMessage: "A jelszó módosítása sikertelen.");
+            if (response.IsSuccessStatusCode) ClosePasswordDialog();
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A jelszó módosítása közben hiba történt."); }
+        finally { _isSaving = false; }
+    }
+
+    private void EditUser(UserItem user)
+    {
+        _userId = user.UserId;
+        _userName = user.UserName;
+        _isActive = user.IsActive;
+        _newUserPassword = string.Empty;
+    }
+
+    private void NewUser()
+    {
+        _userId = null;
+        _userName = string.Empty;
+        _newUserPassword = string.Empty;
+        _isActive = true;
+    }
+
+    private void OpenPasswordDialog(UserItem user)
+    {
+        _passwordUser = user;
+        _passwordValue = string.Empty;
+    }
+
+    private void ClosePasswordDialog()
+    {
+        _passwordUser = null;
+        _passwordValue = string.Empty;
+    }
+
+    private async Task OpenRoleDialogAsync(UserItem user)
+    {
+        _roleUser = user;
+        _selectedRoleId = 0;
+        _roleValidFrom = DateTime.Today.ToString("yyyy-MM-dd");
+        _roleValidTo = string.Empty;
+        _roleAssignments.Clear();
+        await Task.WhenAll(LoadUserRolesAsync(user.UserId), LoadAvailableRolesAsync());
+    }
+
+    private void CloseRoleDialog()
+    {
+        if (_isAssigningRole) return;
+        _roleUser = null;
+        _roleAssignments.Clear();
+        _selectedRoleId = 0;
+    }
+
+    private async Task LoadUserRolesAsync(int userId)
+    {
+        _isLoadingRoles = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"api/users/{userId}/roles");
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A felhasználó szerepeinek betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var items = await response.Content.ReadFromJsonAsync<List<RoleAssignmentItem>>(JsonOptions);
+            _roleAssignments.Clear();
+            _roleAssignments.AddRange(items ?? []);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A felhasználó szerepeinek betöltése közben hiba történt."); }
+        finally { _isLoadingRoles = false; }
+    }
+
+    private async Task LoadAvailableRolesAsync()
+    {
+        _isLoadingRoleOptions = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/roles?isActive=true");
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A választható szerepek betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var items = await response.Content.ReadFromJsonAsync<List<RoleItem>>(JsonOptions);
+            _availableRoles.Clear();
+            _availableRoles.AddRange((items ?? []).Where(role => role.IsActive));
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A választható szerepek betöltése közben hiba történt."); }
+        finally { _isLoadingRoleOptions = false; }
+    }
+
+    private async Task AssignRoleAsync()
+    {
+        if (_isAssigningRole || _roleUser is null) return;
+        if (_selectedRoleId <= 0)
+        {
+            Feedback.ShowError("Válassz ki egy szerepkört.");
+            return;
+        }
+        if (!DateOnly.TryParseExact(_roleValidFrom, "yyyy-MM-dd", out var validFrom))
+        {
+            Feedback.ShowError("Az érvényesség kezdete érvénytelen.");
+            return;
+        }
+
+        DateOnly? validTo = null;
+        if (!string.IsNullOrWhiteSpace(_roleValidTo))
+        {
+            if (!DateOnly.TryParseExact(_roleValidTo, "yyyy-MM-dd", out var parsedValidTo))
+            {
+                Feedback.ShowError("Az érvényesség vége érvénytelen.");
+                return;
+            }
+            if (parsedValidTo < validFrom)
+            {
+                Feedback.ShowError("Az érvényesség vége nem lehet korábbi a kezdeténél.");
+                return;
+            }
+            validTo = parsedValidTo;
+        }
+
+        _isAssigningRole = true;
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"api/users/{_roleUser.UserId}/roles")
+            {
+                Content = JsonContent.Create(
+                    new AssignRoleRequest(_selectedRoleId, validFrom, validTo),
+                    options: JsonOptions)
+            };
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A szerep hozzárendelése sikerült.",
+                fallbackErrorMessage: "A szerep hozzárendelése sikertelen.");
+            if (response.IsSuccessStatusCode)
+            {
+                _selectedRoleId = 0;
+                await LoadUserRolesAsync(_roleUser.UserId);
+            }
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A szerep hozzárendelése közben hiba történt."); }
+        finally { _isAssigningRole = false; }
+    }
+
+    private async Task DeleteRoleAssignmentAsync(RoleAssignmentItem assignment)
+    {
+        if (_isDeletingRoleAssignment || _roleUser is null) return;
+
+        _isDeletingRoleAssignment = true;
+        _deletingRoleAssignment = (assignment.RoleId, assignment.ValidFrom);
+        try
+        {
+            var validFrom = Uri.EscapeDataString(assignment.ValidFrom.ToString("yyyy-MM-dd"));
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/users/{_roleUser.UserId}/roles/{assignment.RoleId}?validFrom={validFrom}");
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A szerep-hozzárendelés törlése sikerült.",
+                fallbackErrorMessage: "A szerep-hozzárendelés törlése sikertelen.");
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadUserRolesAsync(_roleUser.UserId);
+            }
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A szerep-hozzárendelés törlése közben hiba történt."); }
+        finally
+        {
+            _isDeletingRoleAssignment = false;
+            _deletingRoleAssignment = null;
+        }
+    }
+
+    private static string FormatDate(DateOnly date) => date.ToString("yyyy-MM-dd");
+
+    private static string GetAssignmentStatus(RoleAssignmentItem assignment)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (!assignment.RoleIsActive) return "Inaktív szerep";
+        if (assignment.ValidFrom > today) return "Jövőbeni";
+        if (assignment.ValidTo.HasValue && assignment.ValidTo.Value < today) return "Lejárt";
+        return "Érvényes";
+    }
+
+    private async Task HandleSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await LoadUsersAsync();
+    }
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private sealed record UserItem(int UserId, string UserName, bool IsActive);
+    private sealed record CreateUserRequest(string UserName, string Password);
+    private sealed record UpdateUserRequest(string UserName, bool IsActive);
+    private sealed record SetUserPasswordRequest(string NewPassword);
+    private sealed record RoleItem(int RoleId, string Code, string RoleName, bool IsActive);
+    private sealed record RoleAssignmentItem(
+        int UserId,
+        int RoleId,
+        string Code,
+        string RoleName,
+        bool RoleIsActive,
+        DateOnly ValidFrom,
+        DateOnly? ValidTo);
+    private sealed record AssignRoleRequest(int RoleId, DateOnly ValidFrom, DateOnly? ValidTo);
+}

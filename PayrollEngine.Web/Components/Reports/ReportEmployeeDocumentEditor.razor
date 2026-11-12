@@ -1,0 +1,614 @@
+﻿@namespace PayrollEngine.Web.Components.Reports
+@using PayrollEngine.Web.Models
+@using PayrollEngine.Web.Services
+@inject FeedbackService Feedback
+
+@if (ShowDataSections)
+{
+    <div hidden="@(SelectedSectionCode is not null && SelectedSectionCode != "__main")">
+        <section class="report-section">
+            <h3>A fő adatrész megnevezése</h3>
+
+            <div class="report-two-column">
+                <label>
+                    Adatrész címe
+                    <input @bind="Configuration.MainSectionTitle"
+                           @bind:after="NotifyChangedAsync"
+                           disabled="@Disabled"
+                           placeholder="Például Bérelemek" />
+                </label>
+
+                <label>
+                    Excel-munkalap neve
+                    <input @bind="Configuration.MainWorksheetName"
+                           @bind:after="NotifyChangedAsync"
+                           disabled="@Disabled"
+                           placeholder="Például Bérelemek" />
+                </label>
+            </div>
+        </section>
+    </div>
+}
+
+@if (ShowHeader)
+{
+    <section class="report-section">
+        <div class="report-section-heading">
+            <div>
+                <h3>Dokumentum fejléce</h3>
+                <p>
+                    A kiválasztott adatok az egyes táblázatok fölött jelennek meg.
+                </p>
+            </div>
+
+            <label class="report-active-toggle">
+                <input type="checkbox"
+                       @bind="Configuration.Header.IsEnabled"
+                       @bind:after="NotifyChangedAsync"
+                       disabled="@Disabled" />
+                Fejléc használata
+            </label>
+        </div>
+
+        <div hidden="@(!Configuration.Header.IsEnabled)">
+            <ReportDocumentDataBlockEditor @ref="_headerEditor"
+                                           Block="Configuration.Header"
+                                           Heading="Fejléc adatai"
+                                           IsHeader="true"
+                                           Disabled="@(Disabled || !Configuration.Header.IsEnabled)"
+                                           Changed="NotifyChangedAsync" />
+        </div>
+
+        @if (!Configuration.Header.IsEnabled)
+        {
+            <p class="report-muted">
+                A dokumentum kiválasztott törzsadatmezők nélkül készül.
+            </p>
+        }
+    </section>
+}
+
+@if (ShowDataSections)
+{
+    <div hidden="@(SelectedSectionCode == "__main")">
+        <section class="report-section">
+            @if (SelectedSectionCode is null)
+            {
+                <div class="report-section-heading">
+                    <div>
+                        <h3>Kiegészítő adatrészek</h3>
+                        <p>
+                            Excelben külön munkalapra, PDF-ben a megadott
+                            sorrendben kerülnek.
+                        </p>
+                    </div>
+
+                    <button type="button"
+                            class="report-secondary"
+                            @onclick="AddSectionAsync"
+                            disabled="@Disabled">
+                        + Adatrész hozzáadása
+                    </button>
+                </div>
+            }
+
+            @if (Configuration.AdditionalSections.Count == 0)
+            {
+                <p class="report-muted">
+                    Még nincs kiegészítő adatrész.
+                </p>
+            }
+
+            <div class="report-fields">
+                @for (var index = 0;
+                      index < Configuration.AdditionalSections.Count;
+                      index++)
+                {
+                    var sectionIndex = index;
+                    var section = Configuration.AdditionalSections[index];
+
+                    <div hidden="@(SelectedSectionCode is not null &&
+                                   !Same(SelectedSectionCode, section.Code))"
+                 @key="section.Code">
+                <details class="report-field-card report-collapsible-field"
+                         open="@(SelectedSectionCode is not null ||
+                                 Same(_expandedSectionCode, section.Code))">
+                    <summary class="report-field-summary">
+                        <span class="report-field-number">@(sectionIndex + 2)</span>
+
+                        <span class="report-field-summary-name">
+                            <strong>
+                                @(string.IsNullOrWhiteSpace(section.Title)
+                                    ? "Névtelen adatrész"
+                                    : section.Title)
+                            </strong>
+                            <small>
+                                @(section.IsEnabled ? "Aktív" : "Kikapcsolva")
+                                · @section.Fields.Count oszlop
+                            </small>
+                        </span>
+                    </summary>
+
+                    <div class="report-field-body">
+                        <div class="report-field-title">
+                            <strong>Adatrész beállításai</strong>
+
+                            <div class="report-field-actions">
+                                <button type="button"
+                                        class="report-icon-button"
+                                        title="Feljebb"
+                                        @onclick="() => MoveSectionAsync(sectionIndex, -1)"
+                                        disabled="@(Disabled || sectionIndex == 0)">
+                                    ↑
+                                </button>
+
+                                <button type="button"
+                                        class="report-icon-button"
+                                        title="Lejjebb"
+                                        @onclick="() => MoveSectionAsync(sectionIndex, 1)"
+                                        disabled="@(Disabled ||
+                                            sectionIndex == Configuration.AdditionalSections.Count - 1)">
+                                    ↓
+                                </button>
+
+                                <button type="button"
+                                        class="report-danger report-small-button"
+                                        @onclick="() => RemoveSectionAsync(sectionIndex)"
+                                        disabled="@Disabled">
+                                    Eltávolítás
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="report-two-column">
+                            <label>
+                                Adatrész címe *
+                                <input @bind="section.Title"
+                                       @bind:after="NotifyChangedAsync"
+                                       disabled="@Disabled"
+                                       placeholder="Például Távollétek" />
+                            </label>
+
+                            <label>
+                                Excel-munkalap neve
+                                <input @bind="section.WorksheetName"
+                                       @bind:after="NotifyChangedAsync"
+                                       disabled="@Disabled"
+                                       placeholder="Például Távollétek" />
+                            </label>
+
+                            <label class="report-active-toggle">
+                                <input type="checkbox"
+                                       @bind="section.IsEnabled"
+                                       @bind:after="NotifyChangedAsync"
+                                       disabled="@Disabled" />
+                                Adatrész használata
+                            </label>
+
+                            <label class="report-active-toggle">
+                                <input type="checkbox"
+                                       @bind="section.StartNewPage"
+                                       @bind:after="NotifyChangedAsync"
+                                       disabled="@Disabled" />
+                                PDF-ben új oldalon kezdődjön
+                            </label>
+                        </div>
+
+                        <div hidden="@(!section.IsEnabled)">
+                            <ReportDocumentDataBlockEditor @ref="_sectionEditors[section.Code]"
+                                                           Block="section"
+                                                           Heading="Adatrész adatai"
+                                                           IsHeader="false"
+                                                           Disabled="@(Disabled || !section.IsEnabled)"
+                                                           Changed="NotifyChangedAsync" />
+                        </div>
+                    </div>
+                </details>
+            </div>
+        }
+    </div>
+</section>
+</div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ReportEmployeeDocumentEditorDefinition Configuration
+    {
+        get;
+        set;
+    } = new();
+
+    [Parameter]
+    public bool ShowHeader { get; set; } = true;
+
+    [Parameter]
+    public bool ShowDataSections { get; set; } = true;
+
+    [Parameter]
+    public string? SelectedSectionCode { get; set; }
+
+    [Parameter]
+    public EventCallback<string> SelectedSectionCodeChanged { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback Changed { get; set; }
+
+    public string? InvalidSectionCode { get; private set; }
+
+    private ReportDocumentDataBlockEditor? _headerEditor;
+
+    private readonly Dictionary<string, ReportDocumentDataBlockEditor>
+        _sectionEditors = new(StringComparer.OrdinalIgnoreCase);
+
+    private string? _expandedSectionCode;
+
+    protected override void OnParametersSet()
+    {
+        Configuration.Header ??= new();
+        Configuration.AdditionalSections ??= [];
+
+        var currentCodes = Configuration.AdditionalSections
+            .Select(item => item.Code)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var code in _sectionEditors.Keys
+                     .Where(item => !currentCodes.Contains(item))
+                     .ToArray())
+        {
+            _sectionEditors.Remove(code);
+        }
+    }
+
+    public bool Validate()
+    {
+        InvalidSectionCode = null;
+
+        if (ShowHeader &&
+            Configuration.Header.IsEnabled &&
+            Configuration.Header.Fields.Count > 0)
+        {
+            if (_headerEditor is null)
+            {
+                return Error(
+                    "A fejléc szerkesztője még nincs betöltve.");
+            }
+
+            if (!_headerEditor.Validate())
+            {
+                return false;
+            }
+        }
+
+        if (!ShowDataSections)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(Configuration.MainSectionTitle))
+        {
+            InvalidSectionCode = "__main";
+            return Error("Add meg a fő adatrész címét.");
+        }
+
+        var codes = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            "__main"
+        };
+
+        foreach (var section in Configuration.AdditionalSections)
+        {
+            if (string.IsNullOrWhiteSpace(section.Code) ||
+                !codes.Add(section.Code))
+            {
+                return FailSection(
+                    section,
+                    "Az adatrészek belső azonosítója hiányzik vagy ismétlődik.");
+            }
+
+            if (!section.IsEnabled)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(section.Title))
+            {
+                return FailSection(
+                    section,
+                    "Minden aktív adatrészhez adj meg címet.");
+            }
+
+            if (section.Grouping.SplitFilesBy.Count > 0)
+            {
+                return FailSection(
+                    section,
+                    $"A(z) {section.Title} adatrész nem tartalmazhat " +
+                    "külön fájlokra bontást.");
+            }
+
+            if (!_sectionEditors.TryGetValue(
+                    section.Code,
+                    out var editor))
+            {
+                return FailSection(
+                    section,
+                    $"A(z) {section.Title} szerkesztője még nincs betöltve.");
+            }
+
+            if (!editor.Validate())
+            {
+                InvalidSectionCode = section.Code;
+                _expandedSectionCode = section.Code;
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public IReadOnlyList<string> GetRequiredDateModes()
+    {
+        var modes = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var block in ActiveBlocks())
+        {
+            AddDateMode(modes, block.DateFilter.Mode);
+
+            foreach (var relation in block.Relations)
+            {
+                AddDateMode(modes, relation.DateFilter.Mode);
+            }
+
+            foreach (var parameter in block.Parameters)
+            {
+                AddDateMode(modes, parameter.Mode);
+            }
+        }
+
+        return modes.OrderBy(item => item).ToArray();
+    }
+
+    public void NormalizeForSave()
+    {
+        if (ShowHeader)
+        {
+            NormalizeBlock(Configuration.Header);
+        }
+
+        if (ShowDataSections)
+        {
+            Configuration.MainSectionTitle =
+                Configuration.MainSectionTitle.Trim();
+
+            Configuration.MainWorksheetName =
+                Configuration.MainWorksheetName?.Trim() ?? "";
+
+            foreach (var section in Configuration.AdditionalSections)
+            {
+                section.Title = section.Title?.Trim() ?? "";
+                section.WorksheetName =
+                    section.WorksheetName?.Trim() ?? "";
+
+                NormalizeBlock(section);
+            }
+        }
+    }
+
+    private IEnumerable<ReportDocumentDataBlockEditorDefinition>
+        ActiveBlocks()
+    {
+        if (ShowHeader &&
+            Configuration.Header.IsEnabled &&
+            Configuration.Header.Fields.Count > 0)
+        {
+            yield return Configuration.Header;
+        }
+
+        if (ShowDataSections)
+        {
+            foreach (var section in Configuration.AdditionalSections)
+            {
+                if (section.IsEnabled)
+                {
+                    yield return section;
+                }
+            }
+        }
+    }
+
+    private async Task AddSectionAsync()
+    {
+        if (Disabled)
+        {
+            return;
+        }
+
+        var number = Configuration.AdditionalSections.Count + 2;
+
+        var section = new ReportDocumentSectionEditorDefinition
+        {
+            Title = $"Adatrész {number}",
+            WorksheetName = $"Adatok {number}"
+        };
+
+        Configuration.AdditionalSections.Add(section);
+        _expandedSectionCode = section.Code;
+
+        await SelectedSectionCodeChanged.InvokeAsync(section.Code);
+        await NotifyChangedAsync();
+    }
+
+    private async Task RemoveSectionAsync(int index)
+    {
+        if (Disabled ||
+            index < 0 ||
+            index >= Configuration.AdditionalSections.Count)
+        {
+            return;
+        }
+
+        var code = Configuration.AdditionalSections[index].Code;
+
+        Configuration.AdditionalSections.RemoveAt(index);
+        _sectionEditors.Remove(code);
+
+        if (Same(_expandedSectionCode, code))
+        {
+            _expandedSectionCode = null;
+        }
+
+        if (Same(SelectedSectionCode, code))
+        {
+            await SelectedSectionCodeChanged.InvokeAsync("__main");
+        }
+
+        await NotifyChangedAsync();
+    }
+
+    private async Task MoveSectionAsync(int index, int offset)
+    {
+        var target = index + offset;
+
+        if (Disabled ||
+            index < 0 ||
+            target < 0 ||
+            index >= Configuration.AdditionalSections.Count ||
+            target >= Configuration.AdditionalSections.Count)
+        {
+            return;
+        }
+
+        (
+            Configuration.AdditionalSections[index],
+            Configuration.AdditionalSections[target]
+        ) =
+        (
+            Configuration.AdditionalSections[target],
+            Configuration.AdditionalSections[index]
+        );
+
+        await NotifyChangedAsync();
+    }
+
+    private bool FailSection(
+        ReportDocumentSectionEditorDefinition section,
+        string message)
+    {
+        InvalidSectionCode = section.Code;
+        _expandedSectionCode = section.Code;
+
+        return Error(message);
+    }
+
+    private Task NotifyChangedAsync()
+    {
+        return Changed.InvokeAsync();
+    }
+
+    private bool Error(string message)
+    {
+        Feedback.ShowError(message);
+        return false;
+    }
+
+    private static void AddDateMode(
+        HashSet<string> modes,
+        string? mode)
+    {
+        var normalized = mode?.Trim().ToUpperInvariant();
+
+        if (string.IsNullOrWhiteSpace(normalized) ||
+            normalized == "NONE")
+        {
+            return;
+        }
+
+        if (normalized.StartsWith(
+                "MONTH_RANGE",
+                StringComparison.Ordinal))
+        {
+            modes.Add("MONTH_RANGE");
+        }
+        else if (normalized.StartsWith(
+                     "DATE_RANGE",
+                     StringComparison.Ordinal))
+        {
+            modes.Add("DATE_RANGE");
+        }
+        else if (normalized == "AS_OF_DATE")
+        {
+            modes.Add("AS_OF_DATE");
+        }
+    }
+
+    private static void NormalizeBlock(
+        ReportDocumentDataBlockEditorDefinition block)
+    {
+        block.DataSource = block.DataSource.Trim();
+
+        NormalizeDateFilter(block.DateFilter);
+
+        foreach (var relation in block.Relations)
+        {
+            relation.RelationCode = relation.RelationCode.Trim();
+            relation.JoinType =
+                relation.JoinType.Trim().ToUpperInvariant();
+
+            NormalizeDateFilter(relation.DateFilter);
+        }
+
+        foreach (var item in block.Fields)
+        {
+            item.DisplayName = item.DisplayName.Trim();
+            item.OutputName = item.OutputName.Trim();
+            item.Format = Clean(item.Format);
+
+            if (Same(item.Value.Kind, "REFERENCE"))
+            {
+                item.Value.Reference = Clean(item.Value.Reference);
+                item.Value.Constant = null;
+            }
+        }
+
+        foreach (var filter in block.Filters)
+        {
+            filter.Field = filter.Field.Trim();
+            filter.Operator =
+                filter.Operator.Trim().ToUpperInvariant();
+
+            filter.Parameter = Clean(filter.Parameter);
+        }
+    }
+
+    private static void NormalizeDateFilter(
+        ReportDocumentDateFilterEditorDefinition filter)
+    {
+        filter.Mode = filter.Mode.Trim().ToUpperInvariant();
+        filter.DateField = Clean(filter.DateField);
+        filter.ValidFromField = Clean(filter.ValidFromField);
+        filter.ValidToField = Clean(filter.ValidToField);
+    }
+
+    private static string? Clean(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim();
+    }
+
+    private static bool Same(
+        string? first,
+        string? second)
+    {
+        return string.Equals(
+            first,
+            second,
+            StringComparison.OrdinalIgnoreCase);
+    }
+}

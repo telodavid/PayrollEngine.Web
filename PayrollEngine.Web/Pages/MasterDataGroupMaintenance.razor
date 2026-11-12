@@ -1,0 +1,296 @@
+﻿@page "/masterdata-types/groups"
+@using System.Net.Http
+@using System.Net.Http.Json
+@using System.Linq
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>@GetPageTitle()</PageTitle>
+
+<main class="masterdata-group-page">
+    <header class="masterdata-group-header">
+        <button type="button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <h1>@GetPageTitle()</h1>
+    </header>
+
+    <section class="masterdata-group-card">
+        <h2>@(_isPayrollElementScope ? "Bérelem-tulajdonság csoportok" : "Törzsadatcsoportok")</h2>
+
+        @if (_isLoading)
+        {
+            <p>A csoportok betöltése…</p>
+        }
+        else if (_groups.Count == 0)
+        {
+            <p>
+                @(_isPayrollElementScope
+                    ? "Még nincs rögzített bérelem-tulajdonság csoport."
+                    : "Még nincs rögzített törzsadatcsoport.")
+            </p>
+        }
+        else
+        {
+            <div class="masterdata-group-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kód</th>
+                            <th>Megnevezés</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var group in _groups)
+                        {
+                            <tr @key="group.MasterDataGroupId">
+                                <td>@GetDisplayedCode(group.Code)</td>
+                                <td>@group.Name</td>
+                                <td>
+                                    <button type="button"
+                                            @onclick="() => EditGroup(group)">
+                                        Szerkesztés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="masterdata-group-card">
+        <h2>@(_groupId.HasValue ? "Csoport módosítása" : "Új csoport")</h2>
+
+        <div class="masterdata-group-form">
+            <label>
+                Csoportkód *
+                @if (_isPayrollElementScope)
+                {
+                    <span>PAYROLLELEMENT_</span>
+                }
+                <input @bind="_code" maxlength="@(_isPayrollElementScope ? 35 : 50)" />
+            </label>
+
+            <label>
+                Megnevezés *
+                <input @bind="_name" maxlength="100" />
+            </label>
+        </div>
+
+        <div class="masterdata-group-actions">
+            @if (_groupId.HasValue)
+            {
+                <button type="button" @onclick="NewGroup" disabled="@_isSaving">
+                    Új csoport
+                </button>
+            }
+
+            <button type="button"
+                    class="masterdata-group-save"
+                    @onclick="SaveAsync"
+                    disabled="@_isSaving">
+                @(_isSaving
+                    ? "Mentés…"
+                    : _groupId.HasValue
+                        ? "Módosítások mentése"
+                        : "Csoport létrehozása")
+            </button>
+        </div>
+    </section>
+</main>
+
+@code {
+    private const string PayrollElementPrefix = "PAYROLLELEMENT_";
+
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    [Parameter]
+    public bool PayrollElementScope { get; set; }
+
+    private bool _isPayrollElementScope;
+    private List<GroupItem> _groups = [];
+    private int? _groupId;
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private bool _isLoading;
+    private bool _isSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isPayrollElementScope = PayrollElementScope;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+
+        try
+        {
+            using var request =
+                new HttpRequestMessage(HttpMethod.Get, "api/master-data-groups");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: _isPayrollElementScope
+                    ? "A bérelem-tulajdonság csoportok betöltése sikertelen."
+                    : "A törzsadatcsoportok betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _groups = [];
+                return;
+            }
+
+            var allGroups =
+                await response.Content.ReadFromJsonAsync<List<GroupItem>>(JsonOptions) ?? [];
+
+            _groups = allGroups
+                .Where(group => HasPayrollElementPrefix(group.Code) == _isPayrollElementScope)
+                .ToList();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError(_isPayrollElementScope
+                ? "A bérelem-tulajdonság csoportok betöltése közben hiba történt."
+                : "A törzsadatcsoportok betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void EditGroup(GroupItem group)
+    {
+        _groupId = group.MasterDataGroupId;
+        _code = _isPayrollElementScope
+            ? RemovePayrollElementPrefix(group.Code)
+            : group.Code;
+        _name = group.Name;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_isSaving)
+            return;
+
+        var codeSuffix = RemovePayrollElementPrefix(_code.Trim());
+        if (string.IsNullOrWhiteSpace(codeSuffix) || string.IsNullOrWhiteSpace(_name))
+        {
+            Feedback.ShowError("A csoportkód és a megnevezés megadása kötelező.");
+            return;
+        }
+
+        if (!_isPayrollElementScope && HasPayrollElementPrefix(_code.Trim()))
+        {
+            Feedback.ShowError("A PAYROLLELEMENT_ előtagú csoportot a bérelem-tulajdonság csoportok felületen hozd létre.");
+            return;
+        }
+
+        var fullCode = _isPayrollElementScope
+            ? PayrollElementPrefix + codeSuffix
+            : codeSuffix;
+
+        if (fullCode.Length > 50)
+        {
+            Feedback.ShowError("A csoportkód legfeljebb 50 karakter lehet.");
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            var body = new SaveGroupRequest(fullCode, _name.Trim());
+            var isNew = !_groupId.HasValue;
+            var url = isNew
+                ? "api/master-data-groups"
+                : $"api/master-data-groups/{_groupId}";
+
+            using var request = new HttpRequestMessage(
+                isNew ? HttpMethod.Post : HttpMethod.Put,
+                url)
+            {
+                Content = JsonContent.Create(body, options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: isNew
+                    ? _isPayrollElementScope
+                        ? "A bérelem-tulajdonság csoport létrejött."
+                        : "A törzsadatcsoport létrejött."
+                    : _isPayrollElementScope
+                        ? "A bérelem-tulajdonság csoport adatai módosultak."
+                        : "A törzsadatcsoport adatai módosultak.",
+                fallbackErrorMessage: _isPayrollElementScope
+                    ? "A bérelem-tulajdonság csoport mentése sikertelen."
+                    : "A törzsadatcsoport mentése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            NewGroup();
+            await LoadAsync();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError(_isPayrollElementScope
+                ? "A bérelem-tulajdonság csoport mentése közben hiba történt."
+                : "A törzsadatcsoport mentése közben hiba történt.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void NewGroup()
+    {
+        _groupId = null;
+        _code = string.Empty;
+        _name = string.Empty;
+    }
+
+    private string GetDisplayedCode(string code) =>
+        _isPayrollElementScope ? RemovePayrollElementPrefix(code) : code;
+
+    private static bool HasPayrollElementPrefix(string? code) =>
+        code?.StartsWith(PayrollElementPrefix, StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string RemovePayrollElementPrefix(string code) =>
+        HasPayrollElementPrefix(code)
+            ? code[PayrollElementPrefix.Length..]
+            : code;
+
+    private string GetPageTitle() => _isPayrollElementScope
+        ? "Bérelem-tulajdonság csoportok karbantartása"
+        : "Törzsadatcsoportok karbantartása";
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private sealed record GroupItem(
+        int MasterDataGroupId,
+        string Code,
+        string Name);
+
+    private sealed record SaveGroupRequest(
+        string Code,
+        string Name);
+}

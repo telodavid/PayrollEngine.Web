@@ -1,0 +1,115 @@
+﻿.built-in-section {
+    padding: 0 22px 24px;
+}
+
+.built-in-form {
+    margin: 14px 0 24px;
+    padding: 18px;
+    border: 1px solid #eaecf0;
+    border-radius: 10px;
+    background: #fcfcfd;
+}
+
+    .built-in-form h3,
+    .built-in-subheading {
+        margin: 0 0 12px;
+        color: #344054;
+        font-size: 17px;
+    }
+
+    .built-in-form p {
+        margin: 0 0 14px;
+        color: #667085;
+        font-size: 14px;
+    }
+
+.built-in-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+    .built-in-form-grid label {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 7px;
+        color: #344054;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .built-in-form-grid .built-in-checkbox {
+        flex-direction: row;
+        align-items: center;
+        align-self: end;
+        min-height: 42px;
+    }
+
+.built-in-checkbox input {
+    width: 18px;
+    min-height: 18px;
+    margin: 0;
+}
+
+.built-in-subheading {
+    margin-top: 22px;
+}
+
+.built-in-empty {
+    margin: 12px 0 18px;
+    color: #667085;
+    font-size: 14px;
+}
+
+.built-in-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin-bottom: 18px;
+}
+
+.built-in-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: #344054;
+    font-size: 14px;
+}
+
+    .built-in-table th,
+    .built-in-table td {
+        padding: 11px 10px;
+        border-bottom: 1px solid #eaecf0;
+        text-align: left;
+        vertical-align: middle;
+    }
+
+    .built-in-table th {
+        color: #475467;
+        background: #f9fafb;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+.table-action {
+    padding: 6px 10px;
+    border: 1px solid #fecdca;
+    border-radius: 6px;
+    background: #fff;
+    color: #b42318;
+    font-weight: 600;
+}
+
+    .table-action:hover {
+        background: #fff5f4;
+    }
+
+@media (max-width: 720px) {
+    .built-in-section {
+        padding: 0 12px 18px;
+    }
+
+    .built-in-form-grid {
+        grid-template-columns: 1fr;
+    }
+}

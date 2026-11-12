@@ -1,0 +1,184 @@
+﻿@namespace PayrollEngine.Web.Components
+@using System.Globalization
+@using System.Net.Http
+@using System.Net.Http.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+
+<section class="work-schedule-list">
+    <h3 class="built-in-subheading">Hozzárendelt munkarendek</h3>
+
+    @if (_isLoading)
+    {
+        <p class="built-in-empty">A munkarendek betöltése…</p>
+    }
+    else if (_assignments.Count == 0)
+    {
+        <p class="built-in-empty">Ehhez a dolgozóhoz még nincs rögzített munkarend.</p>
+    }
+    else
+    {
+        <div class="built-in-table-wrap">
+            <table class="built-in-table">
+                <thead>
+                    <tr>
+                        <th>Munkarend</th>
+                        <th>Ciklus hossza</th>
+                        <th>Érvényesség kezdete</th>
+                        <th>Érvényesség vége</th>
+                        <th>Ciklus kezdőnapja</th>
+                        <th>Állapot</th>
+                        <th>Művelet</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _assignments)
+                    {
+                        <tr>
+                            <td>@item.WorkScheduleName</td>
+                            <td>@item.PeriodLengthDays nap</td>
+                            <td>@FormatDate(item.ValidFrom)</td>
+                            <td>@FormatDate(item.ValidTo)</td>
+                            <td>@FormatDate(item.CycleStartDate)</td>
+                            <td>@GetStatus(item)</td>
+                            <td>
+                                <button class="table-action"
+                                        @onclick="() => DeleteAssignmentAsync(item.EmploymentWorkScheduleId)"
+                                        disabled="@_isLoading">
+                                    Törlés
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public int EmployeeId { get; set; }
+
+    private bool _isLoading;
+    private List<EmployeeWorkScheduleAssignmentListItem> _assignments = [];
+
+    protected override Task OnParametersSetAsync()
+    {
+        return LoadAsync();
+    }
+
+    public Task ReloadAsync()
+    {
+        return LoadAsync();
+    }
+
+    private async Task DeleteAssignmentAsync(int employmentWorkScheduleId)
+    {
+        if (_isLoading)
+        {
+            return;
+        }
+
+        _isLoading = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/employees/{EmployeeId}/work-schedules/{employmentWorkScheduleId}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage:
+                    "A munkarend-hozzárendelés törlése sikerült.",
+                fallbackErrorMessage:
+                    "A munkarend-hozzárendelés törlése sikertelen.");
+
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A munkarend-hozzárendelés törlése sikertelen.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/employees/{EmployeeId}/work-schedules");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A munkarendek betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _assignments = [];
+                return;
+            }
+
+            _assignments = await response.Content.ReadFromJsonAsync<
+                List<EmployeeWorkScheduleAssignmentListItem>>() ?? [];
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A munkarendek betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private static string FormatDate(DateOnly? date)
+    {
+        return date?.ToString(
+            "yyyy. MM. dd.",
+            CultureInfo.GetCultureInfo("hu-HU")) ?? "—";
+    }
+
+    private static string GetStatus(EmployeeWorkScheduleAssignmentListItem item)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        if (item.ValidFrom > today)
+        {
+            return "Jövőbeni";
+        }
+
+        if (!item.ValidTo.HasValue || item.ValidTo.Value >= today)
+        {
+            return "Érvényes";
+        }
+
+        return "Lezárt";
+    }
+
+    private sealed record EmployeeWorkScheduleAssignmentListItem(
+        int EmploymentWorkScheduleId,
+        int WorkScheduleId,
+        string WorkScheduleName,
+        int PeriodLengthDays,
+        DateOnly ValidFrom,
+        DateOnly? ValidTo,
+        DateOnly CycleStartDate);
+}

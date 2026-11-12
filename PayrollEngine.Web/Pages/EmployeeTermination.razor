@@ -1,0 +1,325 @@
+﻿@using System.Text.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Munkavállaló kiléptetése</PageTitle>
+
+<main class="termination-page">
+    <header class="termination-header">
+        <button type="button" class="termination-back-button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <h1>Munkavállaló kiléptetése</h1>
+        <span></span>
+    </header>
+
+    <section class="termination-card">
+        <h2>Dolgozó keresése</h2>
+        <label for="termination-search">Név, EmployeeID</label>
+        <div class="termination-search-row">
+            <input id="termination-search"
+                   @bind="_searchText"
+                   @bind:event="oninput"
+                   @onkeydown="HandleSearchKeyDown"
+                   placeholder="Írd be a keresési adatot" />
+            <button type="button"
+                    class="termination-secondary-button"
+                    @onclick="SearchEmployeesAsync"
+                    disabled="@_isSearching">
+                @(_isSearching ? "Keresés…" : "Keresés")
+            </button>
+        </div>
+
+        @if (_hasSearched && _employees.Count == 0 && !_isSearching)
+        {
+            <p class="termination-empty">Nem található aktív munkavállaló.</p>
+        }
+
+        @if (_employees.Count > 0)
+        {
+            <div class="termination-results">
+                @foreach (var employee in _employees)
+                {
+                    <button type="button"
+                            class="termination-result @(_selectedEmployee?.EmployeeId == employee.EmployeeId ? "selected" : "")"
+                            @onclick="() => SelectEmployee(employee)">
+                        <strong>@employee.LastName @employee.FirstName</strong>
+                        <span>Azonosító: @employee.EmployeeId · Belépés: @FormatDate(employee.JoinDate)</span>
+                    </button>
+                }
+            </div>
+        }
+    </section>
+
+    @if (_selectedEmployee is not null)
+    {
+        <section class="termination-card">
+            <h2>Kilépési adatok</h2>
+            <div class="termination-selected-employee">
+                <span>Kiválasztott dolgozó</span>
+                <strong>@_selectedEmployee.LastName @_selectedEmployee.FirstName</strong>
+                <small>Azonosító: @_selectedEmployee.EmployeeId · Belépés: @FormatDate(_selectedEmployee.JoinDate)</small>
+            </div>
+
+            <label for="termination-date">Kilépés dátuma</label>
+            <input id="termination-date"
+                   type="date"
+                   min="@GetMinimumDate()"
+                   @bind="_terminationDate" />
+
+            @if (_result is not null)
+            {
+                <div class="termination-success">
+                    <strong>A munkavállaló kiléptetése sikerült.</strong>
+                    <span>Lezárt bérelem-hozzárendelések: @_result.ClosedPayrollElements</span>
+                    <span>Törölt jövőbeni bérelem-hozzárendelések: @_result.DeletedFuturePayrollElements</span>
+                </div>
+            }
+            else
+            {
+                <p class="termination-hint">
+                    A művelet inaktívra állítja a dolgozót, lezárja a kilépés napjáig érvényes bérelemeket,
+                    és eltávolítja a jövőbeni bérelem-hozzárendeléseket.
+                </p>
+                <button type="button"
+                        class="termination-submit"
+                        @onclick="OpenConfirmation"
+                        disabled="@_isSaving">
+                    Munkavállaló kiléptetése
+                </button>
+            }
+        </section>
+    }
+</main>
+
+@if (_showConfirmation && _selectedEmployee is not null)
+{
+    <div class="termination-modal-backdrop" @onclick="CloseConfirmation">
+        <section class="termination-confirmation"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="termination-confirmation-title"
+                 @onclick:stopPropagation="true">
+            <h2 id="termination-confirmation-title">Kiléptetés megerősítése</h2>
+            <p>
+                Biztosan kilépteted @_selectedEmployee.LastName @_selectedEmployee.FirstName dolgozót
+                @FormatDate(DateOnly.FromDateTime(_terminationDate)) dátummal?
+            </p>
+            <div class="termination-confirmation-actions">
+                <button type="button"
+                        class="termination-secondary-button"
+                        @onclick="CloseConfirmation"
+                        disabled="@_isSaving">
+                    Mégse
+                </button>
+                <button type="button"
+                        class="termination-submit"
+                        @onclick="ConfirmTerminationAsync"
+                        disabled="@_isSaving">
+                    @(_isSaving ? "Kiléptetés…" : "Kiléptetés véglegesítése")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private string _searchText = string.Empty;
+    private DateTime _terminationDate = DateTime.Today;
+    private bool _isSearching;
+    private bool _isSaving;
+    private bool _hasSearched;
+    private bool _showConfirmation;
+    private List<EmployeeItem> _employees = [];
+    private EmployeeItem? _selectedEmployee;
+    private TerminationResult? _result;
+
+    private async Task SearchEmployeesAsync()
+    {
+        var search = _searchText.Trim();
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            Feedback.ShowError("Adj meg nevet, vagy EmpoyeeID-t");
+            return;
+        }
+
+        _isSearching = true;
+        _hasSearched = true;
+        _employees = [];
+        _selectedEmployee = null;
+        _result = null;
+
+        try
+        {
+            var path = $"api/employees?search={Uri.EscapeDataString(search)}&isActive=true";
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A munkavállalók keresése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            _employees = await response.Content.ReadFromJsonAsync<List<EmployeeItem>>(JsonOptions) ?? [];
+            _employees = _employees.Where(item => item.IsActive).ToList();
+
+            if (_employees.Count == 1)
+            {
+                SelectEmployee(_employees[0]);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a szerverkapcsolati hibát.
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A munkavállalók keresése közben hiba történt.");
+        }
+        finally
+        {
+            _isSearching = false;
+        }
+    }
+
+    private void SelectEmployee(EmployeeItem employee)
+    {
+        _selectedEmployee = employee;
+        _result = null;
+        _terminationDate = employee.JoinDate.HasValue
+            ? MaxDate(DateTime.Today, employee.JoinDate.Value.ToDateTime(TimeOnly.MinValue))
+            : DateTime.Today;
+    }
+
+    private static DateTime MaxDate(DateTime first, DateTime second) =>
+        first.Date >= second.Date ? first.Date : second.Date;
+
+    private void OpenConfirmation()
+    {
+        if (_selectedEmployee is null)
+        {
+            Feedback.ShowError("Válassz ki egy munkavállalót.");
+            return;
+        }
+
+        if (!_selectedEmployee.JoinDate.HasValue)
+        {
+            Feedback.ShowError("A munkavállaló belépési dátuma nincs megadva.");
+            return;
+        }
+
+        if (_terminationDate.Date < _selectedEmployee.JoinDate.Value.ToDateTime(TimeOnly.MinValue).Date)
+        {
+            Feedback.ShowError("A kilépés dátuma nem lehet korábbi a belépés dátumánál.");
+            return;
+        }
+
+        _showConfirmation = true;
+    }
+
+    private async Task ConfirmTerminationAsync()
+    {
+        if (_selectedEmployee is null)
+        {
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Put,
+                $"api/employees/{_selectedEmployee.EmployeeId}/termination")
+            {
+                Content = JsonContent.Create(new
+                {
+                    TerminationDate = DateOnly.FromDateTime(_terminationDate)
+                }, options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A munkavállaló kiléptetése sikerült.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            _result = await response.Content.ReadFromJsonAsync<TerminationResult>(JsonOptions);
+            _showConfirmation = false;
+
+            if (_result is null)
+            {
+                Feedback.ShowError("A kiléptetés sikerült, de az eredményt nem sikerült beolvasni.");
+            }
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a szerverkapcsolati hibát.
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A munkavállaló kiléptetése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void CloseConfirmation()
+    {
+        if (!_isSaving)
+        {
+            _showConfirmation = false;
+        }
+    }
+
+    private string GetMinimumDate()
+    {
+        return _selectedEmployee?.JoinDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            ?? string.Empty;
+    }
+
+    private static string FormatDate(DateOnly? date)
+    {
+        return date?.ToString("yyyy. MM. dd.", CultureInfo.GetCultureInfo("hu-HU")) ?? "—";
+    }
+
+    private async Task HandleSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await SearchEmployeesAsync();
+        }
+    }
+
+    private void BackToApps()
+    {
+        Navigation.NavigateTo("/apps");
+    }
+
+    private sealed record EmployeeItem(
+        int EmployeeId,
+        string FirstName,
+        string LastName,
+        bool IsActive,
+        DateOnly? JoinDate,
+        DateOnly? PayrollRunFrom);
+
+    private sealed record TerminationResult(
+        int EmployeeId,
+        DateOnly TerminationDate,
+        bool IsActive,
+        int ClosedPayrollElements,
+        int DeletedFuturePayrollElements,
+        string? Message);
+}

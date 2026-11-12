@@ -1,0 +1,668 @@
+﻿@page "/payroll-runs/{RunId:guid}"
+@using System.Globalization
+@using System.Net.Http
+@using System.Text
+@using System.Text.Json
+@using PayrollEngine.Web.Services
+@inject FeedbackHttpClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Számfejtési eredmények</PageTitle>
+
+<main class="payroll-results-page">
+    <header class="payroll-results-header">
+        <button type="button"
+                class="results-secondary"
+                @onclick="BackToRunSetup">
+            Vissza a számfejtéshez
+        </button>
+
+        <div>
+            <h1>Számfejtési eredmények</h1>
+
+            @if (!string.IsNullOrWhiteSpace(_runIdText))
+            {
+                <p>Futásazonosító: @_runIdText</p>
+            }
+        </div>
+    </header>
+
+    @if (_isLoading)
+    {
+        <section class="results-card">
+            <p>Az eredmények betöltése…</p>
+        </section>
+    }
+    else if (!string.IsNullOrWhiteSpace(_loadError))
+    {
+        <section class="results-card">
+            <p class="results-error">@_loadError</p>
+        </section>
+    }
+    else
+    {
+        <section class="results-card">
+            <div class="results-summary">
+                <div>
+                    <span>Állapot</span>
+                    <strong class="@(_runSucceeded ? "status-success" : "status-failed")">
+                        @_runStatus
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Séma</span>
+                    <strong>@_schemaCode · v@_schemaVersion</strong>
+                </div>
+
+                <div>
+                    <span>Időszak</span>
+                    <strong>@_periodFrom – @_periodTo</strong>
+                </div>
+
+                <div>
+                    <span>Futtatás</span>
+                    <strong>@(_isSimulation ? "Tesztfutás" : "Éles futás")</strong>
+                </div>
+
+                <div>
+                    <span>Munkavállalók</span>
+                    <strong>@_employeeCount fő</strong>
+                </div>
+            </div>
+
+            @if (_runError is not null)
+            {
+                <p class="results-error">@_runError</p>
+            }
+
+            @if (_results.Count == 0)
+            {
+                <p class="results-empty">
+                    A futás nem adott ki bérelem-eredményt.
+                </p>
+            }
+            else
+            {
+                <div class="results-employee-list">
+                    @foreach (var employeeGroup in _results
+                        .GroupBy(result => result.EmployeeId)
+                        .OrderBy(group => group.First().EmployeeName))
+                    {
+                        var employee = employeeGroup.First();
+
+                        <details class="results-employee"
+                                 @key="employee.EmployeeId">
+                            <summary>@employee.EmployeeName</summary>
+
+                            <div class="results-period-list">
+                                @foreach (var periodGroup in employeeGroup
+                                    .GroupBy(result => result.Period)
+                                    .OrderBy(group => group.Key))
+                                {
+                                    <details class="results-period"
+                                             @key="periodGroup.Key">
+                                        <summary>
+                                            <span>@periodGroup.Key</span>
+                                            <span class="results-period-count">
+                                                @periodGroup.Count() bérelem
+                                            </span>
+                                        </summary>
+
+                                        <div class="results-table-wrap">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>Dolgozó</th>
+                                                        <th>Hónap</th>
+                                                        <th>Bérelem</th>
+                                                        <th>Bérelem neve</th>
+                                                        <th>Összeg</th>
+                                                        <th>Művelet</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var result in periodGroup)
+                                                    {
+                                                        <tr @key="result.RowId">
+                                                            <td>@result.EmployeeName</td>
+                                                            <td>@result.Period</td>
+                                                            <td>@result.PayrollElementCode</td>
+                                                            <td>@result.PayrollElementName</td>
+                                                            <td>
+                                                                @result.Amount.ToString(
+                                                                    "N2",
+                                                                    CultureInfo.GetCultureInfo("hu-HU"))
+                                                            </td>
+                                                            <td>
+                                                                <button type="button"
+                                                                        class="results-log-button"
+                                                                        @onclick="() => ShowLog(result)">
+                                                                    Napló megtekintése
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </details>
+                                }
+                            </div>
+                        </details>
+                    }
+                </div>
+            }
+        </section>
+    }
+
+    @if (_selectedLog is not null)
+    {
+        <div class="results-log-backdrop" @onclick="CloseLog">
+            <section class="results-log-dialog"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="results-log-title"
+                     @onclick:stopPropagation="true">
+                <header class="results-log-header">
+                    <div>
+                        <span>FUTÁSNAPLÓ</span>
+                        <h2 id="results-log-title">@_selectedLogTitle</h2>
+                    </div>
+
+                    <button type="button"
+                            class="results-log-close"
+                            aria-label="Ablak bezárása"
+                            @onclick="CloseLog">
+                        ×
+                    </button>
+                </header>
+
+                <div class="results-log-body" role="log" aria-live="polite">
+                    @foreach (var line in _selectedLog.Split(
+                        '\n',
+                        StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var cleanLine = line.TrimEnd('\r');
+
+                        <div class="results-log-line @GetLogLineClass(cleanLine)">
+                            @cleanLine
+                        </div>
+                    }
+                </div>
+
+                <footer class="results-log-actions">
+                    <button type="button"
+                            class="results-secondary"
+                            @onclick="CloseLog">
+                        Bezárás
+                    </button>
+                </footer>
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    [Parameter]
+    public Guid RunId { get; set; }
+
+    private bool _isLoading;
+    private bool _runSucceeded;
+    private bool _isSimulation;
+
+    private string _runIdText = string.Empty;
+    private string _runStatus = string.Empty;
+    private string _schemaCode = string.Empty;
+    private string _schemaVersion = string.Empty;
+    private string _periodFrom = string.Empty;
+    private string _periodTo = string.Empty;
+
+    private string? _runError;
+    private string? _loadError;
+    private int _employeeCount;
+
+    private readonly List<RunResultRow> _results = [];
+
+    private string? _selectedLog;
+    private string _selectedLogTitle = string.Empty;
+
+    protected override Task OnParametersSetAsync() => LoadRunAsync();
+
+    private async Task LoadRunAsync()
+    {
+        _isLoading = true;
+        _loadError = null;
+        _selectedLog = null;
+        _employeeCount = 0;
+        _results.Clear();
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/payroll-runs/{RunId:D}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage:
+                    "A számfejtési futás naplójának betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _loadError =
+                    "A futás adatai nem tölthetők be. Ellenőrizd a futásazonosítót és a jogosultságot.";
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(json);
+            ReadRun(document.RootElement);
+        }
+        catch (HttpRequestException)
+        {
+            _loadError = "Az API nem érhető el.";
+        }
+        catch (JsonException)
+        {
+            _loadError = "A futás naplója nem olvasható formátumú.";
+        }
+        catch
+        {
+            _loadError =
+                "Hiba történt a futás eredményének betöltésekor.";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void ReadRun(JsonElement root)
+    {
+        _runIdText = ReadText(root, "runId") ?? RunId.ToString("D");
+        _runStatus = ReadText(root, "status") ?? "Ismeretlen";
+
+        _runSucceeded =
+            _runStatus.Equals(
+                "Succeeded",
+                StringComparison.OrdinalIgnoreCase)
+            || _runStatus.Equals(
+                "NoPeriods",
+                StringComparison.OrdinalIgnoreCase);
+
+        _isSimulation = ReadBool(root, "isSimulation");
+        _schemaCode = ReadText(root, "schemaCode") ?? "—";
+        _schemaVersion = ReadText(root, "schemaVersion") ?? "—";
+        _periodFrom = ReadText(root, "periodFrom") ?? "—";
+        _periodTo = ReadText(root, "periodTo") ?? "—";
+        _runError = ReadText(root, "errorMessage");
+
+        if (!TryGetProperty(root, "employees", out var employees) ||
+            employees.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        var employeeRows = employees.EnumerateArray().ToArray();
+        _employeeCount = employeeRows.Length;
+        var rowNumber = 0;
+
+        foreach (var employee in employeeRows)
+        {
+            var employeeId = ReadInt(employee, "employeeId");
+            var employeeName =
+                ReadText(employee, "employeeName") ?? $"Dolgozó {employeeId}";
+
+            if (!TryGetProperty(employee, "periods", out var periods) ||
+                periods.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var period in periods.EnumerateArray())
+            {
+                var periodCode = ReadText(period, "period") ?? "—";
+                var periodStatus = ReadText(period, "status") ?? "Ismeretlen";
+
+                if (!TryGetProperty(
+                        period,
+                        "payrollElements",
+                        out var payrollElements) ||
+                    payrollElements.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var payrollElement in payrollElements.EnumerateArray())
+                {
+                    var code =
+                        ReadText(payrollElement, "payrollElementCode") ?? "—";
+                    var elementName =
+                        ReadText(payrollElement, "payrollElementName") ?? code;
+                    var ruleCode = ReadText(payrollElement, "ruleCode");
+                    var amount = ReadDecimal(payrollElement, "amount");
+                    var resultType =
+                        ReadText(payrollElement, "resultType") ?? "—";
+
+                    var logText = BuildRowLog(
+                        period,
+                        periodStatus,
+                        employeeId,
+                        employeeName,
+                        periodCode,
+                        code,
+                        elementName,
+                        amount,
+                        resultType,
+                        ruleCode);
+
+                    _results.Add(new RunResultRow(
+                        ++rowNumber,
+                        employeeId,
+                        employeeName,
+                        periodCode,
+                        code,
+                        elementName,
+                        amount,
+                        resultType,
+                        logText));
+                }
+            }
+        }
+    }
+
+    private string BuildRowLog(
+        JsonElement period,
+        string periodStatus,
+        int employeeId,
+        string employeeName,
+        string periodCode,
+        string payrollElementCode,
+        string payrollElementName,
+        decimal amount,
+        string resultType,
+        string? rowRuleCode)
+    {
+        var log = new StringBuilder();
+        log.AppendLine($"Futásazonosító: {_runIdText}");
+        log.AppendLine($"Dolgozó: {employeeName} (ID: {employeeId})");
+        log.AppendLine($"Időszak: {periodCode}");
+        log.AppendLine(
+            $"Bérelem: {payrollElementCode} — {payrollElementName}");
+        log.AppendLine(
+            $"Eredmény: {amount.ToString("N2", CultureInfo.GetCultureInfo("hu-HU"))} ({resultType})");
+        log.AppendLine($"Időszak állapota: {periodStatus}");
+        log.AppendLine();
+        log.AppendLine("Szabályfuttatási nyom:");
+
+        if (!TryGetProperty(period, "rules", out var rules) ||
+            rules.ValueKind != JsonValueKind.Array ||
+            rules.GetArrayLength() == 0)
+        {
+            log.AppendLine("Ehhez az időszakhoz nincs szabálynapló.");
+            return log.ToString();
+        }
+
+        var ruleItems = rules.EnumerateArray().ToArray();
+
+        JsonElement[] matchingRules =
+            !string.IsNullOrWhiteSpace(rowRuleCode)
+                ? ruleItems
+                    .Where(rule => string.Equals(
+                        ReadText(rule, "ruleCode"),
+                        rowRuleCode,
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToArray()
+                : Array.Empty<JsonElement>();
+
+        var rulesToShow =
+            matchingRules.Length > 0 ? matchingRules : ruleItems;
+
+        foreach (var rule in rulesToShow)
+        {
+            log.AppendLine();
+
+            var ruleCode = ReadText(rule, "ruleCode") ?? "—";
+            var ruleName = ReadText(rule, "ruleName") ?? ruleCode;
+
+            log.AppendLine($"Szabály: {ruleName} ({ruleCode})");
+            log.AppendLine(
+                $"Állapot: {ReadText(rule, "status") ?? "—"}");
+
+            var ruleError = ReadText(rule, "errorMessage");
+            if (!string.IsNullOrWhiteSpace(ruleError))
+            {
+                log.AppendLine($"Hiba: {ruleError}");
+            }
+
+            if (TryGetProperty(rule, "variables", out var variables) &&
+                variables.ValueKind == JsonValueKind.Object &&
+                variables.EnumerateObject().Any())
+            {
+                log.AppendLine("Változók:");
+
+                foreach (var variable in variables.EnumerateObject())
+                {
+                    log.AppendLine(
+                        $"  {variable.Name} = {FormatJsonValue(variable.Value)}");
+                }
+            }
+
+            if (TryGetProperty(rule, "operations", out var operations) &&
+                operations.ValueKind == JsonValueKind.Array)
+            {
+                log.AppendLine("Műveletek:");
+
+                foreach (var operation in operations.EnumerateArray())
+                {
+                    var sequence = ReadInt(operation, "sequenceNumber");
+                    var operationCode =
+                        ReadText(operation, "operationCode") ?? "—";
+                    var status = ReadText(operation, "status") ?? "—";
+                    var result = ReadText(operation, "result");
+                    var displayResult =
+                        FormatOperationResult(operationCode, result);
+                    var description = ReadText(operation, "description");
+                    var executionContext =
+                        ReadText(operation, "executionContext");
+
+                    if (status == "BranchSelected")
+                    {
+                        status = "Döntés";
+                    }
+
+                    var operationLabel = string.IsNullOrWhiteSpace(description)
+                        ? operationCode
+                        : $"{operationCode} ({description})";
+                    var resultSuffix = displayResult is null
+                        ? string.Empty
+                        : $" — {displayResult}";
+                    var contextSuffix = string.IsNullOrWhiteSpace(executionContext)
+                        ? string.Empty
+                        : $" [{executionContext}]";
+
+                    log.AppendLine(
+                        $"  {sequence}. {operationLabel} — {status}{resultSuffix}{contextSuffix}");
+                }
+            }
+        }
+
+        return log.ToString();
+    }
+
+    private void ShowLog(RunResultRow result)
+    {
+        _selectedLogTitle =
+            $"{result.PayrollElementCode} — {result.PayrollElementName} · " +
+            $"{result.EmployeeName} · {result.Period}";
+
+        _selectedLog = result.LogText;
+    }
+
+    private static string? FormatOperationResult(
+        string operationCode,
+        string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result) ||
+            (!operationCode.Equals(
+                 "workCalendar",
+                 StringComparison.OrdinalIgnoreCase) &&
+             !operationCode.Equals(
+                 "calendarEntries",
+                 StringComparison.OrdinalIgnoreCase)))
+        {
+            return result;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return result;
+            }
+
+            var count = document.RootElement.GetArrayLength();
+
+            return operationCode.Equals(
+                "workCalendar",
+                StringComparison.OrdinalIgnoreCase)
+                ? $"{count} naptári nap betöltve"
+                : $"{count} naptári esemény betöltve";
+        }
+        catch (JsonException)
+        {
+            return result;
+        }
+    }
+
+    private static string GetLogLineClass(string line)
+    {
+        var trimmed = line.Trim();
+
+        if (trimmed.StartsWith(
+                "Szabály:",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "is-rule";
+        }
+
+        if (trimmed.StartsWith(
+                "Műveletek:",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "is-section";
+        }
+
+        if (trimmed.Contains(
+                "— Döntés —",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "is-decision";
+        }
+
+        if (trimmed.StartsWith(
+                "Állapot:",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "is-status";
+        }
+
+        if (trimmed.StartsWith(
+                "Hiba:",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "is-error";
+        }
+
+        if (trimmed.Length > 0 && char.IsDigit(trimmed[0]))
+        {
+            return "is-operation";
+        }
+
+        return string.Empty;
+    }
+
+    private void CloseLog() => _selectedLog = null;
+
+    private void BackToRunSetup()
+        => Navigation.NavigateTo("/apps/PAYROLL_RUN");
+
+    private static bool TryGetProperty(
+        JsonElement element,
+        string name,
+        out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(
+                        property.Name,
+                        name,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string? ReadText(JsonElement element, string name)
+    {
+        if (!TryGetProperty(element, name, out var value) ||
+            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : value.ToString();
+    }
+
+    private static int ReadInt(JsonElement element, string name)
+        => TryGetProperty(element, name, out var value) &&
+           value.TryGetInt32(out var number)
+            ? number
+            : 0;
+
+    private static decimal ReadDecimal(JsonElement element, string name)
+        => TryGetProperty(element, name, out var value) &&
+           value.TryGetDecimal(out var number)
+            ? number
+            : 0m;
+
+    private static bool ReadBool(JsonElement element, string name)
+        => TryGetProperty(element, name, out var value) &&
+           (value.ValueKind == JsonValueKind.True ||
+            (value.ValueKind == JsonValueKind.String &&
+             bool.TryParse(value.GetString(), out var parsed) &&
+             parsed));
+
+    private static string FormatJsonValue(JsonElement value)
+        => value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Null => "null",
+            JsonValueKind.Undefined => string.Empty,
+            _ => value.ToString()
+        };
+
+    private sealed record RunResultRow(
+        int RowId,
+        int EmployeeId,
+        string EmployeeName,
+        string Period,
+        string PayrollElementCode,
+        string PayrollElementName,
+        decimal Amount,
+        string ResultType,
+        string LogText);
+}

@@ -1,0 +1,93 @@
+﻿@page "/apps/{Code}"
+
+@if (string.Equals(
+        Code,
+        "MASTERDATA_MAINTENANCE",
+        StringComparison.OrdinalIgnoreCase))
+{
+    <EmployeeSearch />
+}
+else if (string.Equals(
+        Code,
+        "USER_MAINTENANCE",
+        StringComparison.OrdinalIgnoreCase))
+{
+    <UserMaintenance />
+}
+else if (string.Equals(
+        Code,
+        "CALCULATION_RULE_MAINTENANCE",
+        StringComparison.OrdinalIgnoreCase))
+{
+    <CalculationRuleMaintenance />
+}
+else if (string.Equals(
+        Code,
+        "PAYROLL_SCHEMA_MAINTENANCE",
+        StringComparison.OrdinalIgnoreCase))
+{
+    <PayrollSchemaMaintenance />
+}
+else if (string.Equals(
+        Code,
+        "PAYROLL_RUN",
+        StringComparison.OrdinalIgnoreCase))
+{
+    <PayrollRunSelection />
+}
+else if (string.Equals(
+        Code,
+        "PAYROLL_ELEMENT_MAINTENANCE",
+        StringComparison.OrdinalIgnoreCase))
+{
+    <PayrollElementMaintenance />
+}
+else if (string.Equals(
+        Code,
+        "ABSENCE_TYPE_MAINTENANCE",
+        StringComparison.OrdinalIgnoreCase))
+{
+    <AbsenceTypeMaintenance />
+}
+else
+{
+    <div class="placeholder-page">
+        <h1>@GetModuleTitle()</h1>
+        <p>Az alkalmazás funkcióit ezen az oldalon építjük tovább.</p>
+        <button @onclick="BackToApps">Vissza az alkalmazásokhoz</button>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string? Code { get; set; }
+
+    [Inject]
+    private NavigationManager Navigation { get; set; } = default!;
+
+    private void BackToApps()
+    {
+        Navigation.NavigateTo("/apps");
+    }
+
+    private string GetModuleTitle()
+    {
+        if (string.Equals(Code, "WORKSCHEDULE_CONFIG", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Munkarend-konfiguráló alkalmazás";
+        }
+
+        if (string.Equals(Code, "PAYROLL_RUN", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Számfejtő alkalmazás";
+        }
+
+        return "Alkalmazás";
+    }
+}
+
+<style>
+    .placeholder-page {
+        padding: 24px;
+    }
+</style>

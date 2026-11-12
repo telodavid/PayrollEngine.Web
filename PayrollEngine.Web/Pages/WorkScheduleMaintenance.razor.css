@@ -1,0 +1,143 @@
+﻿.work-schedule-page {
+    width: 100%;
+    color: #101828;
+}
+
+.work-schedule-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+    .work-schedule-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+    }
+
+.work-schedule-card {
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: #fff;
+}
+
+    .work-schedule-card h2,
+    .work-schedule-card h3 {
+        color: #344054;
+    }
+
+.work-schedule-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+    .work-schedule-grid label,
+    .work-schedule-days label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        color: #344054;
+        font-weight: 600;
+    }
+
+    .work-schedule-grid input:not([type="checkbox"]),
+    .work-schedule-days select,
+    .work-schedule-search input {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 40px;
+        padding: 0.55rem 0.7rem;
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        font: inherit;
+    }
+
+.work-schedule-checkbox {
+    flex-direction: row !important;
+    align-items: center;
+}
+
+    .work-schedule-checkbox input {
+        width: 18px;
+        height: 18px;
+    }
+
+.work-schedule-search,
+.work-schedule-actions {
+    display: flex;
+    gap: 0.65rem;
+}
+
+    .work-schedule-search input {
+        flex: 1;
+    }
+
+.work-schedule-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.6rem;
+}
+
+.work-schedule-table-wrap {
+    margin-top: 1rem;
+    overflow-x: auto;
+}
+
+    .work-schedule-table-wrap table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .work-schedule-table-wrap th,
+    .work-schedule-table-wrap td {
+        padding: 0.7rem;
+        border-bottom: 1px solid #eaecf0;
+        text-align: left;
+    }
+
+.work-schedule-actions {
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
+.work-schedule-page button {
+    min-height: 38px;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #101828;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+    .work-schedule-page button.work-schedule-save {
+        border-color: #175cd3;
+        background: #175cd3;
+        color: #fff;
+    }
+
+@media (max-width: 750px) {
+    .work-schedule-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+        .work-schedule-header h1 {
+            font-size: 1.45rem;
+        }
+
+    .work-schedule-grid,
+    .work-schedule-days {
+        grid-template-columns: 1fr;
+    }
+
+    .work-schedule-search,
+    .work-schedule-actions {
+        flex-direction: column;
+    }
+}

@@ -1,0 +1,30 @@
+﻿@page "/"
+@inject NavigationManager Navigation
+
+<PageTitle>Kezdőlap</PageTitle>
+
+<main class="home-page">
+    <section class="home-card" aria-labelledby="home-title">
+
+        <p class="home-eyebrow">PayrollEngine</p>
+        <h1 id="home-title">Bérszámfejtő rendszer</h1>
+        <p class="home-description">
+            A webes felület üzemkész. A folytatáshoz jelentkezz be, majd válaszd ki
+            a használni kívánt alkalmazást.
+        </p>
+
+        <button class="home-login-button"
+                type="button"
+                @onclick="GoToLogin">
+            Tovább a bejelentkezéshez
+            <span aria-hidden="true">→</span>
+        </button>
+    </section>
+</main>
+
+@code {
+    private void GoToLogin()
+    {
+        Navigation.NavigateTo("/login");
+    }
+}

@@ -1,0 +1,66 @@
+﻿.work-schedule-list {
+    margin: 8px 20px 22px;
+    color: #101828;
+}
+
+    .work-schedule-list .built-in-subheading {
+        margin: 20px 0 10px;
+        color: #344054;
+        font-size: 17px;
+        font-weight: 600;
+    }
+
+    .work-schedule-list .built-in-empty {
+        margin: 0 0 14px;
+        padding: 12px 14px;
+        border: 1px solid #eaecf0;
+        border-radius: 8px;
+        background: #f9fafb;
+        color: #667085;
+        font-size: 14px;
+    }
+
+    .work-schedule-list .built-in-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+    .work-schedule-list .built-in-table {
+        width: 100%;
+        border-collapse: collapse;
+        color: #101828;
+        font-size: 14px;
+    }
+
+        .work-schedule-list .built-in-table th,
+        .work-schedule-list .built-in-table td {
+            padding: 11px 13px;
+            border-bottom: 1px solid #eaecf0;
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        .work-schedule-list .built-in-table th {
+            background: #f9fafb;
+            color: #344054;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .work-schedule-list .built-in-table tbody tr:last-child td {
+            border-bottom: 0;
+        }
+
+        .work-schedule-list .built-in-table tbody tr:hover {
+            background: #f5f8ff;
+        }
+
+@media (max-width: 760px) {
+    .work-schedule-list {
+        margin-right: 14px;
+        margin-left: 14px;
+    }
+}

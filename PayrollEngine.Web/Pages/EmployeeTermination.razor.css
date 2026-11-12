@@ -1,0 +1,244 @@
+﻿.termination-page {
+    width: 100%;
+    color: #101828;
+}
+
+.termination-header {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+    .termination-header h1 {
+        margin: 0;
+        color: #101828;
+        font-size: 1.8rem;
+        text-align: center;
+    }
+
+.termination-back-button,
+.termination-secondary-button,
+.termination-submit {
+    min-height: 42px;
+    padding: 0.65rem 1rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #101828;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.termination-back-button {
+    justify-self: start;
+}
+
+.termination-submit {
+    border-color: #b42318;
+    background: #b42318;
+    color: #fff;
+}
+
+    .termination-submit:hover {
+        border-color: #912018;
+        background: #912018;
+    }
+
+.termination-secondary-button:hover,
+.termination-back-button:hover {
+    background: #f9fafb;
+}
+
+.termination-card {
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: #fff;
+}
+
+    .termination-card h2 {
+        margin: 0 0 1rem;
+        color: #344054;
+        font-size: 1.15rem;
+    }
+
+    .termination-card > label {
+        display: block;
+        margin-bottom: 0.45rem;
+        color: #344054;
+        font-size: 0.92rem;
+        font-weight: 600;
+    }
+
+.termination-search-row {
+    display: flex;
+    gap: 0.65rem;
+}
+
+    .termination-search-row input,
+    #termination-date {
+        min-height: 42px;
+        padding: 0.6rem 0.7rem;
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        background: #fff;
+        color: #101828;
+        font: inherit;
+        box-sizing: border-box;
+    }
+
+    .termination-search-row input {
+        flex: 1;
+        min-width: 0;
+    }
+
+#termination-date {
+    display: block;
+    width: min(100%, 320px);
+}
+
+    .termination-search-row input:focus,
+    #termination-date:focus {
+        border-color: #2970ff;
+        outline: 3px solid rgb(41 112 255 / 12%);
+    }
+
+.termination-results {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.termination-result {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.3rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #344054;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+}
+
+    .termination-result:hover,
+    .termination-result.selected {
+        border-color: #175cd3;
+        background: #eff8ff;
+    }
+
+    .termination-result span,
+    .termination-selected-employee small {
+        color: #667085;
+        font-size: 0.88rem;
+    }
+
+.termination-empty,
+.termination-hint {
+    margin: 0.85rem 0 0;
+    color: #667085;
+    font-size: 0.9rem;
+}
+
+.termination-selected-employee {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    padding: 0.85rem;
+    border: 1px solid #eaecf0;
+    border-radius: 8px;
+    background: #f9fafb;
+}
+
+    .termination-selected-employee > span {
+        color: #667085;
+        font-size: 0.85rem;
+    }
+
+.termination-hint {
+    max-width: 760px;
+    margin-bottom: 1rem;
+    line-height: 1.5;
+}
+
+.termination-success {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid #abefc6;
+    border-radius: 8px;
+    background: #f1faf3;
+    color: #067647;
+}
+
+.termination-modal-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgb(16 24 40 / 55%);
+}
+
+.termination-confirmation {
+    width: min(100%, 480px);
+    padding: 1.5rem;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 20px 40px rgb(16 24 40 / 20%);
+}
+
+    .termination-confirmation h2 {
+        margin: 0 0 0.75rem;
+        color: #101828;
+        font-size: 1.25rem;
+    }
+
+    .termination-confirmation p {
+        color: #475467;
+        line-height: 1.5;
+    }
+
+.termination-confirmation-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.65rem;
+    margin-top: 1.25rem;
+}
+
+.termination-submit:disabled,
+.termination-secondary-button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+@media (max-width: 700px) {
+    .termination-header {
+        grid-template-columns: 1fr;
+        justify-items: start;
+    }
+
+        .termination-header h1 {
+            text-align: left;
+            font-size: 1.45rem;
+        }
+
+    .termination-search-row {
+        flex-direction: column;
+    }
+
+    .termination-confirmation-actions {
+        flex-direction: column-reverse;
+    }
+}

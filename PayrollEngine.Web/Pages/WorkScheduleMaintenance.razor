@@ -1,0 +1,508 @@
+﻿@page "/workschedule/schedules"
+@using System.Text.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Munkarendek</PageTitle>
+
+<main class="work-schedule-page">
+    <header class="work-schedule-header">
+        <button type="button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <h1>Munkarendek karbantartása</h1>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <p class="work-schedule-status" role="status">@_status</p>
+    }
+
+    <section class="work-schedule-card">
+        <h2>Rögzített munkarendek</h2>
+
+        <div class="work-schedule-search">
+            <input @bind="_search"
+                   @bind:event="oninput"
+                   placeholder="Keresés munkarend neve alapján" />
+            <button type="button"
+                    @onclick="LoadSchedulesAsync"
+                    disabled="@_isLoadingSchedules">
+                @(_isLoadingSchedules ? "Betöltés…" : "Keresés")
+            </button>
+        </div>
+
+        @if (_isLoadingSchedules && _schedules.Count == 0)
+        {
+            <p>A munkarendek betöltése…</p>
+        }
+        else if (_schedules.Count == 0)
+        {
+            <p>Nem található munkarend.</p>
+        }
+        else
+        {
+            <div class="work-schedule-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Munkarend</th>
+                            <th>Ciklus hossza</th>
+                            <th>Beállított napok</th>
+                            <th>Állapot</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _schedules)
+                        {
+                            <tr @key="item.WorkScheduleId">
+                                <td>@item.Name</td>
+                                <td>@item.PeriodLengthDays nap</td>
+                                <td>@item.ConfiguredDays</td>
+                                <td>@(item.IsActive ? "Aktív" : "Inaktív")</td>
+                                <td>
+                                    <button type="button"
+                                            @onclick="async () => await EditScheduleAsync(item.WorkScheduleId)"
+                                            disabled="@_isLoadingSchedule">
+                                        Szerkesztés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="work-schedule-card">
+        <h2>@(_workScheduleId.HasValue ? "Munkarend módosítása" : "Új munkarend")</h2>
+
+        <div class="work-schedule-grid">
+            <label>
+                Munkarend neve *
+                <input @bind="_name" maxlength="100" />
+            </label>
+
+            <label>
+                Ciklus hossza napokban *
+                <input type="number"
+                       min="1"
+                       max="366"
+                       value="@_periodLength"
+                       @onchange="ChangePeriodLength" />
+            </label>
+
+            @if (_workScheduleId.HasValue)
+            {
+                <label class="work-schedule-checkbox">
+                    <input type="checkbox" @bind="_isActive" />
+                    Aktív
+                </label>
+            }
+        </div>
+
+        <h3>Ciklusnapok és naptípusok</h3>
+
+        @if (_dayTypes.Count == 0)
+        {
+            <p>Még nincs naptípus. Előbb hozz létre naptípust a Naptípusok menüpontban.</p>
+        }
+        else
+        {
+            <div class="work-schedule-days">
+                @foreach (var day in _days)
+                {
+                    <label @key="day.DayOfPeriod">
+                        @day.DayOfPeriod. nap
+                        <select @bind="day.DayTypeId">
+                            <option value="0">Válassz</option>
+                            @foreach (var dayType in _dayTypes)
+                            {
+                                <option value="@dayType.DayTypeId">@dayType.Code</option>
+                            }
+                        </select>
+                    </label>
+                }
+            </div>
+        }
+
+        <div class="work-schedule-actions">
+            @if (_workScheduleId.HasValue)
+            {
+                <button type="button"
+                        @onclick="NewSchedule"
+                        disabled="@_isSaving">
+                    Új munkarend
+                </button>
+            }
+
+            <button type="button"
+                    class="work-schedule-save"
+                    @onclick="async () => await SaveScheduleAsync()"
+                    disabled="@(_isSaving || _dayTypes.Count == 0)">
+                @(_isSaving
+                    ? "Mentés…"
+                    : _workScheduleId.HasValue
+                        ? "Módosítások mentése"
+                        : "Munkarend létrehozása")
+            </button>
+        </div>
+    </section>
+</main>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private string _search = string.Empty;
+    private string _name = string.Empty;
+    private string _status = string.Empty;
+
+    private int _periodLength = 1;
+    private bool _isActive = true;
+    private int? _workScheduleId;
+
+    private bool _isLoadingSchedules;
+    private bool _isLoadingSchedule;
+    private bool _isSaving;
+
+    private List<ScheduleItem> _schedules = [];
+    private List<DayTypeItem> _dayTypes = [];
+    private List<ScheduleDayEdit> _days = [new(1, 0)];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDayTypesAsync();
+        await LoadSchedulesAsync();
+    }
+
+    private async Task LoadDayTypesAsync()
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                "api/day-types");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A naptípusok betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            _dayTypes =
+                await response.Content.ReadFromJsonAsync<List<DayTypeItem>>(JsonOptions) ?? [];
+
+            if (_dayTypes.Count > 0 &&
+                _days.Count == 1 &&
+                _days[0].DayTypeId == 0)
+            {
+                _days[0].DayTypeId = _dayTypes[0].DayTypeId;
+            }
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A naptípusok betöltése közben hiba történt.");
+        }
+    }
+
+    private async Task LoadSchedulesAsync()
+    {
+        if (_isLoadingSchedules)
+            return;
+
+        _isLoadingSchedules = true;
+
+        try
+        {
+            var search = _search.Trim();
+            var url = string.IsNullOrWhiteSpace(search)
+                ? "api/work-schedules"
+                : $"api/work-schedules?search={Uri.EscapeDataString(search)}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A munkarendek betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            _schedules =
+                await response.Content.ReadFromJsonAsync<List<ScheduleItem>>(JsonOptions) ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A munkarendek betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoadingSchedules = false;
+        }
+    }
+
+    private async Task EditScheduleAsync(int id)
+    {
+        if (_isLoadingSchedule)
+            return;
+
+        _isLoadingSchedule = true;
+        _status = $"A munkarend betöltése folyamatban (azonosító: {id})…";
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/work-schedules/{id}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A munkarend betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _status = "A munkarend betöltése nem sikerült.";
+                return;
+            }
+
+            var schedule =
+                await response.Content.ReadFromJsonAsync<ScheduleDetails>(JsonOptions);
+
+            if (schedule is null)
+            {
+                _status = "A szerver üres munkarend-adatot küldött.";
+                Feedback.ShowError(_status);
+                return;
+            }
+
+            _workScheduleId = schedule.WorkScheduleId;
+            _name = schedule.Name;
+            _periodLength = schedule.PeriodLengthDays;
+            _isActive = schedule.IsActive;
+            _days = schedule.Days
+                .OrderBy(day => day.DayOfPeriod)
+                .Select(day => new ScheduleDayEdit(
+                    day.DayOfPeriod,
+                    day.DayTypeId))
+                .ToList();
+
+            _status = $"A munkarend betöltődött (azonosító: {id}).";
+        }
+        catch (HttpRequestException)
+        {
+            _status = "A szerver nem érhető el.";
+        }
+        catch (Exception exception)
+        {
+            _status = "Hiba történt a munkarend adatainak feldolgozásakor.";
+            Feedback.ShowError($"{_status} {exception.Message}");
+        }
+        finally
+        {
+            _isLoadingSchedule = false;
+        }
+    }
+
+    private void ChangePeriodLength(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var newLength))
+            return;
+
+        _periodLength = Math.Clamp(newLength, 1, 366);
+
+        var previousDayTypes = _days.ToDictionary(
+            day => day.DayOfPeriod,
+            day => day.DayTypeId);
+
+        var defaultDayTypeId = _dayTypes.FirstOrDefault()?.DayTypeId ?? 0;
+
+        _days = Enumerable.Range(1, _periodLength)
+            .Select(dayNumber => new ScheduleDayEdit(
+                dayNumber,
+                previousDayTypes.TryGetValue(dayNumber, out var oldDayTypeId)
+                    ? oldDayTypeId
+                    : defaultDayTypeId))
+            .ToList();
+    }
+
+    private async Task SaveScheduleAsync()
+    {
+        _status = "A mentés gomb eseménye lefutott.";
+
+        if (_isSaving)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _status = "A mentés leállt: a munkarend neve hiányzik.";
+            Feedback.ShowError("A munkarend nevét meg kell adni.");
+            return;
+        }
+
+        if (_days.Count != _periodLength ||
+            _days.Any(day => day.DayTypeId <= 0))
+        {
+            _status = "A mentés leállt: legalább egy ciklusnaphoz nincs naptípus rendelve.";
+            Feedback.ShowError("A ciklus minden napjához válassz naptípust.");
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            var dayRequests = _days
+                .Select(day => new ScheduleDayRequest(
+                    day.DayOfPeriod,
+                    day.DayTypeId))
+                .ToList();
+
+            HttpRequestMessage request;
+
+            if (_workScheduleId.HasValue)
+            {
+                var body = new UpdateScheduleRequest(
+                    _name.Trim(),
+                    _periodLength,
+                    _isActive,
+                    dayRequests);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Put,
+                    $"api/work-schedules/{_workScheduleId}")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+            else
+            {
+                var body = new CreateScheduleRequest(
+                    _name.Trim(),
+                    _periodLength,
+                    dayRequests);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    "api/work-schedules")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+
+            _status = "A munkarend mentési kérése elküldve az API-nak.";
+
+            using (request)
+            using (var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: _workScheduleId.HasValue
+                    ? "A munkarend adatai módosultak."
+                    : "A munkarend létrejött.",
+                fallbackErrorMessage: "A munkarend mentése sikertelen."))
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    _status = $"Az API elutasította a mentést (HTTP {(int)response.StatusCode}).";
+                    return;
+                }
+            }
+
+            _status = "A munkarend mentése sikerült.";
+            NewSchedule();
+            await LoadSchedulesAsync();
+        }
+        catch (HttpRequestException)
+        {
+            _status = "A mentési kérés nem érte el a szervert.";
+        }
+        catch (Exception exception)
+        {
+            _status = "Hiba történt a munkarend mentése közben.";
+            Feedback.ShowError($"{_status} {exception.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void NewSchedule()
+    {
+        _workScheduleId = null;
+        _name = string.Empty;
+        _periodLength = 1;
+        _isActive = true;
+        _days =
+        [
+            new ScheduleDayEdit(1, _dayTypes.FirstOrDefault()?.DayTypeId ?? 0)
+        ];
+        _status = string.Empty;
+    }
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private sealed record DayTypeItem(
+        int DayTypeId,
+        string Code,
+        string Name,
+        bool IsWorkday,
+        TimeSpan? StartTime,
+        TimeSpan? EndTime,
+        short BreakMinutes);
+
+    private sealed record ScheduleItem(
+        int WorkScheduleId,
+        string Name,
+        int PeriodLengthDays,
+        bool IsActive,
+        int ConfiguredDays);
+
+    private sealed record ScheduleDetails(
+        int WorkScheduleId,
+        string Name,
+        int PeriodLengthDays,
+        bool IsActive,
+        List<ScheduleDayDetails> Days);
+
+    private sealed record ScheduleDayDetails(
+        int DayOfPeriod,
+        int DayTypeId,
+        string Code,
+        string Name,
+        bool IsWorkday,
+        TimeSpan? StartTime,
+        TimeSpan? EndTime,
+        short BreakMinutes);
+
+    private sealed record ScheduleDayRequest(
+        int DayOfPeriod,
+        int DayTypeId);
+
+    private sealed record CreateScheduleRequest(
+        string Name,
+        int PeriodLengthDays,
+        List<ScheduleDayRequest> Days);
+
+    private sealed record UpdateScheduleRequest(
+        string Name,
+        int PeriodLengthDays,
+        bool IsActive,
+        List<ScheduleDayRequest> Days);
+
+    private sealed class ScheduleDayEdit(int dayOfPeriod, int dayTypeId)
+    {
+        public int DayOfPeriod { get; set; } = dayOfPeriod;
+        public int DayTypeId { get; set; } = dayTypeId;
+    }
+}

@@ -1,0 +1,305 @@
+﻿@using System.Text.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+
+<PageTitle>Cégadatok karbantartása</PageTitle>
+
+<main class="company-page">
+    <h1>Cégadatok karbantartása</h1>
+
+    <section class="company-card">
+        <h2>Rögzített cégek</h2>
+
+        <div class="company-search">
+            <input @bind="_search"
+                   @bind:event="oninput"
+                   placeholder="Keresés cégnév alapján" />
+            <button type="button"
+                    @onclick="LoadCompaniesAsync"
+                    disabled="@_isLoading">
+                Keresés
+            </button>
+        </div>
+
+        @if (_isLoading && _companies.Count == 0)
+        {
+            <p>A cégek betöltése…</p>
+        }
+        else if (_companies.Count == 0)
+        {
+            <p>Nem található cég.</p>
+        }
+        else
+        {
+            <div class="company-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Cégnév</th>
+                            <th>Adószám</th>
+                            <th>Telefonszám</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var company in _companies)
+                        {
+                            <tr>
+                                <td>@company.CompanyName</td>
+                                <td>@(company.TaxId ?? "—")</td>
+                                <td>@(company.PhoneNumber ?? "—")</td>
+                                <td>
+                                    <button type="button"
+                                            @onclick="() => EditCompanyAsync(company.CompanyId)"
+                                            disabled="@_isLoading">
+                                        Szerkesztés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="company-card">
+        <h2>@(_companyId.HasValue ? "Cég adatainak módosítása" : "Új cég felvétele")</h2>
+
+        <EditForm Model="_form" OnValidSubmit="SaveCompanyAsync">
+            <DataAnnotationsValidator />
+
+            <div class="company-grid">
+                <label>
+                    Cégnév *
+                    <InputText @bind-Value="_form.CompanyName" maxlength="200" />
+                </label>
+
+                <label>
+                    Adószám
+                    <InputText @bind-Value="_form.TaxId" maxlength="30" />
+                </label>
+
+                <label>
+                    Bankszámlaszám
+                    <InputText @bind-Value="_form.BankAccountNumber" maxlength="50" />
+                </label>
+
+                <label>
+                    Telefonszám
+                    <InputText @bind-Value="_form.PhoneNumber" maxlength="30" />
+                </label>
+
+                <label class="company-wide">
+                    Cím
+                    <InputTextArea @bind-Value="_form.CompanyAddress" maxlength="500" rows="3" />
+                </label>
+            </div>
+
+            <div class="company-actions">
+                @if (_companyId.HasValue)
+                {
+                    <button type="button" @onclick="StartNewCompany" disabled="@_isSaving">
+                        Új cég felvétele
+                    </button>
+                }
+
+                <button type="submit" disabled="@_isSaving">
+                    @(_isSaving ? "Mentés…" : _companyId.HasValue ? "Módosítások mentése" : "Cég létrehozása")
+                </button>
+            </div>
+        </EditForm>
+    </section>
+</main>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private string _search = string.Empty;
+    private int? _companyId;
+    private bool _isLoading;
+    private bool _isSaving;
+    private List<CompanyItem> _companies = [];
+    private CompanyForm _form = new();
+
+    protected override Task OnInitializedAsync() => LoadCompaniesAsync();
+
+    private async Task LoadCompaniesAsync()
+    {
+        if (_isLoading)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            var search = _search.Trim();
+            var url = string.IsNullOrWhiteSpace(search)
+                ? "api/companies"
+                : $"api/companies?search={Uri.EscapeDataString(search)}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A cégek betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _companies = [];
+                return;
+            }
+
+            _companies =
+                await response.Content.ReadFromJsonAsync<List<CompanyItem>>(JsonOptions) ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A cégek betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task EditCompanyAsync(int companyId)
+    {
+        if (_isLoading)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            using var request =
+                new HttpRequestMessage(HttpMethod.Get, $"api/companies/{companyId}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A cég adatainak betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var company =
+                await response.Content.ReadFromJsonAsync<CompanyItem>(JsonOptions);
+
+            if (company is null)
+            {
+                Feedback.ShowError("A cég adatai nem olvashatók.");
+                return;
+            }
+
+            _companyId = company.CompanyId;
+            _form = new CompanyForm
+            {
+                CompanyName = company.CompanyName,
+                CompanyAddress = company.CompanyAddress ?? string.Empty,
+                BankAccountNumber = company.BankAccountNumber ?? string.Empty,
+                TaxId = company.TaxId ?? string.Empty,
+                PhoneNumber = company.PhoneNumber ?? string.Empty
+            };
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A cég adatainak betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SaveCompanyAsync()
+    {
+        if (_isSaving)
+            return;
+
+        _isSaving = true;
+
+        try
+        {
+            var body = new
+            {
+                CompanyName = _form.CompanyName.Trim(),
+                CompanyAddress = EmptyToNull(_form.CompanyAddress),
+                BankAccountNumber = EmptyToNull(_form.BankAccountNumber),
+                TaxId = EmptyToNull(_form.TaxId),
+                PhoneNumber = EmptyToNull(_form.PhoneNumber)
+            };
+
+            var isNew = !_companyId.HasValue;
+            var method = isNew ? HttpMethod.Post : HttpMethod.Put;
+            var url = isNew ? "api/companies" : $"api/companies/{_companyId}";
+
+            using var request = new HttpRequestMessage(method, url)
+            {
+                Content = JsonContent.Create(body, options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: isNew
+                    ? "A cég létrejött."
+                    : "A cég adatai módosultak.",
+                fallbackErrorMessage: "A cég mentése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            await LoadCompaniesAsync();
+
+            if (isNew)
+                StartNewCompany();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A cég mentése közben hiba történt.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void StartNewCompany()
+    {
+        _companyId = null;
+        _form = new CompanyForm();
+    }
+
+    private static string? EmptyToNull(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private sealed record CompanyItem(
+        int CompanyId,
+        string CompanyName,
+        string? CompanyAddress,
+        string? BankAccountNumber,
+        string? TaxId,
+        string? PhoneNumber);
+
+    private sealed class CompanyForm
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "A cégnév megadása kötelező.")]
+        public string CompanyName { get; set; } = string.Empty;
+
+        public string CompanyAddress { get; set; } = string.Empty;
+        public string BankAccountNumber { get; set; } = string.Empty;
+        public string TaxId { get; set; } = string.Empty;
+        public string PhoneNumber { get; set; } = string.Empty;
+    }
+}

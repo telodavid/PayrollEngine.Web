@@ -1,0 +1,269 @@
+﻿.user-maintenance-page {
+    width: min(1500px, calc(100% - 40px));
+    margin: 24px auto;
+    color: #172033;
+}
+
+    .user-maintenance-page *,
+    .user-maintenance-page *::before,
+    .user-maintenance-page *::after {
+        box-sizing: border-box;
+    }
+
+.user-maintenance-header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+    .user-maintenance-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+    }
+
+.user-maintenance-page button,
+.user-maintenance-page input,
+.user-maintenance-page select {
+    font: inherit;
+}
+
+.user-maintenance-secondary,
+.user-maintenance-row-actions button,
+.user-maintenance-close {
+    padding: 9px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #172033;
+    cursor: pointer;
+}
+
+    .user-maintenance-row-actions button:hover,
+    .user-maintenance-secondary:hover {
+        border-color: #315eea;
+        color: #234bd0;
+    }
+
+.user-maintenance-delete {
+    padding: 8px 12px;
+    border: 1px solid #e2a5a5;
+    border-radius: 8px;
+    background: #fff;
+    color: #a32222;
+    cursor: pointer;
+}
+
+    .user-maintenance-delete:hover {
+        border-color: #b42318;
+        background: #fff5f5;
+    }
+
+.user-maintenance-card {
+    margin-bottom: 18px;
+    padding: 20px;
+    border: 1px solid #d5dbe6;
+    border-radius: 12px;
+    background: #fff;
+}
+
+    .user-maintenance-card h2 {
+        margin: 0 0 16px;
+        font-size: 1.15rem;
+    }
+
+.user-maintenance-search {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 180px auto;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+    .user-maintenance-search input,
+    .user-maintenance-search select,
+    .user-maintenance-form input:not([type="checkbox"]),
+    .user-maintenance-modal input {
+        width: 100%;
+        min-height: 42px;
+        padding: 9px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+.user-maintenance-table-wrap {
+    overflow-x: auto;
+}
+
+.user-maintenance-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .user-maintenance-table th,
+    .user-maintenance-table td {
+        padding: 12px;
+        border-bottom: 1px solid #e5e9f0;
+        text-align: left;
+    }
+
+    .user-maintenance-table th {
+        font-weight: 700;
+    }
+
+.user-maintenance-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.user-maintenance-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+    .user-maintenance-form label,
+    .user-maintenance-modal label {
+        display: grid;
+        gap: 7px;
+        font-weight: 600;
+    }
+
+        .user-maintenance-form label span {
+            color: #c62828;
+        }
+
+    .user-maintenance-form .user-maintenance-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        align-self: end;
+        min-height: 42px;
+    }
+
+.user-maintenance-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.user-maintenance-save {
+    padding: 10px 16px;
+    border: 0;
+    border-radius: 8px;
+    background: #315eea;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.user-maintenance-page button:disabled {
+    cursor: not-allowed;
+    opacity: .6;
+}
+
+.user-maintenance-muted {
+    color: #667085;
+}
+
+.user-maintenance-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgb(15 23 42 / 55%);
+}
+
+.user-maintenance-modal {
+    width: min(720px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    padding: 20px;
+    border: 1px solid #d5dbe6;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 20px 50px rgb(15 23 42 / 22%);
+}
+
+    .user-maintenance-modal header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+
+    .user-maintenance-modal h2,
+    .user-maintenance-modal p {
+        margin: 0 0 6px;
+    }
+
+    .user-maintenance-modal p {
+        color: #667085;
+    }
+
+    .user-maintenance-modal select {
+        width: 100%;
+        min-height: 42px;
+        padding: 9px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+.user-maintenance-role-modal {
+    width: min(1120px, calc(100vw - 48px));
+}
+
+.user-maintenance-role-section {
+    margin-top: 20px;
+}
+
+    .user-maintenance-role-section h3 {
+        margin: 0 0 12px;
+        font-size: 1rem;
+    }
+
+.user-maintenance-role-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, .85fr) minmax(0, .85fr);
+    gap: 12px;
+}
+
+    .user-maintenance-role-form label {
+        min-width: 0;
+    }
+
+.user-maintenance-role-modal .user-maintenance-table {
+    min-width: 760px;
+}
+
+.user-maintenance-close {
+    font-size: 1.3rem;
+    line-height: 1;
+}
+
+@media (max-width: 760px) {
+    .user-maintenance-page {
+        width: calc(100% - 24px);
+    }
+
+    .user-maintenance-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .user-maintenance-search,
+    .user-maintenance-form,
+    .user-maintenance-role-form {
+        grid-template-columns: 1fr;
+    }
+
+    .user-maintenance-role-modal {
+        width: calc(100vw - 24px);
+    }
+}

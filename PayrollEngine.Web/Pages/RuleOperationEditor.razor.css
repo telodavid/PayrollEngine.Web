@@ -1,0 +1,558 @@
+﻿.rule-node-card,
+.rule-node-card *,
+.rule-nested-list,
+.rule-nested-list * {
+    box-sizing: border-box;
+}
+
+.rule-node-card {
+    display: grid;
+    gap: 14px;
+    width: 100%;
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid #d5dbe6;
+    border-radius: 10px;
+    background: #fff;
+    color: #172033;
+    box-shadow: 0 2px 6px rgb(16 24 40 / 4%);
+}
+
+.rule-node-statement {
+    border-left: 4px solid #315eea;
+    background: #fff;
+}
+
+.rule-node-expression {
+    border-color: #dbe3f2;
+    background: #f8faff;
+}
+
+.rule-node-heading {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto auto;
+    align-items: end;
+    gap: 10px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e8edf5;
+}
+
+    .rule-node-heading label,
+    .rule-primitive-input {
+        display: grid;
+        gap: 7px;
+        min-width: 0;
+        color: #26334a;
+        font-size: .95rem;
+        font-weight: 700;
+    }
+
+        .rule-node-heading select,
+        .rule-primitive-input input:not([type="checkbox"]),
+        .rule-primitive-input select,
+        .rule-nested-add select {
+            display: block;
+            width: 100%;
+            min-width: 0;
+            min-height: 42px;
+            padding: 9px 11px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #fff;
+            color: #172033;
+            font: inherit;
+        }
+
+            .rule-node-heading select:focus,
+            .rule-primitive-input input:focus,
+            .rule-primitive-input select:focus,
+            .rule-nested-add select:focus {
+                outline: 3px solid rgb(49 94 234 / 16%);
+                border-color: #315eea;
+            }
+
+.rule-remove-step,
+.rule-collapse-button {
+    min-height: 40px;
+    padding: 7px 11px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #344054;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.rule-remove-step {
+    border-color: #e2a5a5;
+    color: #a32222;
+}
+
+    .rule-remove-step:hover {
+        background: #fff5f5;
+    }
+
+.rule-collapse-button:hover {
+    border-color: #8aa5ff;
+    background: #f5f7ff;
+}
+
+.rule-mode-button {
+    justify-self: start;
+    padding: 6px 9px;
+    border: 0;
+    border-radius: 6px;
+    background: #eef2ff;
+    color: #3152bd;
+    font: inherit;
+    font-size: .86rem;
+    cursor: pointer;
+}
+
+    .rule-mode-button:hover {
+        background: #e1e8ff;
+    }
+
+.rule-node-description {
+    margin: -4px 0 0;
+    color: #667085;
+    font-size: .9rem;
+}
+
+.rule-node-inputs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 12px;
+    min-width: 0;
+}
+
+.rule-primitive-input,
+.rule-input-group {
+    min-width: 0;
+}
+
+.rule-input-group {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: 13px;
+    border: 1px solid #e1e6ef;
+    border-radius: 9px;
+    background: #fff;
+}
+
+    .rule-input-group h4 {
+        margin: 0;
+        color: #24324a;
+        font-size: .98rem;
+    }
+
+/* Az IF feltétele külön sorban, a két ága egymás mellett jelenik meg. */
+.operation-if > .rule-node-inputs > .rule-input-group:first-child {
+    grid-column: 1 / -1;
+}
+
+/* A ciklus műveletei teljes szélességű, jól elkülönített területet kapnak. */
+.operation-forEach > .rule-node-inputs > .rule-input-group:last-child,
+.operation-and > .rule-node-inputs > .rule-input-group,
+.operation-or > .rule-node-inputs > .rule-input-group {
+    grid-column: 1 / -1;
+}
+
+.operation-equal > .rule-node-inputs,
+.operation-notEqual > .rule-node-inputs,
+.operation-greaterThan > .rule-node-inputs,
+.operation-greaterThanOrEqual > .rule-node-inputs,
+.operation-lessThan > .rule-node-inputs,
+.operation-lessThanOrEqual > .rule-node-inputs,
+.operation-add > .rule-node-inputs,
+.operation-subtract > .rule-node-inputs,
+.operation-multiply > .rule-node-inputs,
+.operation-divide > .rule-node-inputs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rule-nested-list {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+}
+
+.rule-statement-list {
+    padding: 14px;
+    border: 1px solid #d5dfff;
+    border-left: 3px solid #9bb0ff;
+    border-radius: 8px;
+    background: #f8faff;
+}
+
+.rule-expression-list {
+    padding: 4px 0 4px 10px;
+    border-left: 2px solid #e1e6ef;
+}
+
+.rule-nested-list > .rule-muted {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 7px;
+    background: #f5f7fb;
+    color: #667085;
+}
+
+.rule-nested-add {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid #e8edf5;
+}
+
+.rule-picker-hint {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: #667085;
+    font-size: .86rem;
+}
+
+.rule-nested-add .rule-secondary {
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #172033;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+    .rule-nested-add .rule-secondary:hover:not(:disabled) {
+        border-color: #315eea;
+        color: #234bd0;
+    }
+
+    .rule-nested-add .rule-secondary:disabled {
+        opacity: .55;
+        cursor: not-allowed;
+    }
+
+.rule-reference-results {
+    display: grid;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 7px;
+    padding: 6px;
+    border: 1px solid #d5dbe6;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.rule-reference-option {
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: #fff;
+    color: #172033;
+    text-align: left;
+    cursor: pointer;
+}
+
+    .rule-reference-option:hover,
+    .rule-reference-option.is-selected {
+        border-color: #a7b8ff;
+        background: #f1f4ff;
+    }
+
+    .rule-reference-option small {
+        color: #667085;
+        font-weight: 400;
+    }
+
+.rule-reference-empty {
+    margin: 0;
+    padding: 9px;
+    color: #667085;
+    font-size: .88rem;
+}
+
+.rule-reference-current {
+    color: #475467;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+.rule-primitive-input input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #315eea;
+}
+
+@media (max-width: 760px) {
+    .rule-node-card {
+        padding: 12px;
+    }
+
+    .rule-node-heading,
+    .rule-node-inputs,
+    .operation-equal > .rule-node-inputs,
+    .operation-notEqual > .rule-node-inputs,
+    .operation-greaterThan > .rule-node-inputs,
+    .operation-greaterThanOrEqual > .rule-node-inputs,
+    .operation-lessThan > .rule-node-inputs,
+    .operation-lessThanOrEqual > .rule-node-inputs,
+    .operation-add > .rule-node-inputs,
+    .operation-subtract > .rule-node-inputs,
+    .operation-multiply > .rule-node-inputs,
+    .operation-divide > .rule-node-inputs {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .rule-nested-add {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .rule-statement-list {
+        padding: 10px;
+    }
+}
+/* Az egyszerű műveletek ne jelenjenek meg külön, erős kártyaként. */
+.rule-node-statement:not(.operation-if):not(.operation-forEach):not(.operation-switch) {
+    padding: 8px 0 8px 10px;
+    border: 0;
+    border-left: 2px solid #cbd5e1;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+/* A kifejezések legyenek visszafogott sorok. */
+.rule-node-expression {
+    padding: 6px 0 6px 10px;
+    border: 0;
+    border-left: 1px solid #e1e6ef;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+    /* A beágyazott kifejezések körüli plusz keretek ne darabolják fel a nézetet. */
+    .rule-node-expression .rule-input-group {
+        padding: 4px 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+    }
+
+/* Az IF ágai továbbra is maradjanak jól elkülönítve. */
+.operation-if > .rule-node-inputs > .rule-input-group {
+    padding: 12px;
+    border: 1px solid #e1e6ef;
+    border-radius: 8px;
+    background: #fff;
+}
+
+/* A ciklus tartalma kapjon egy jól felismerhető, közös területet. */
+.operation-forEach > .rule-node-inputs > .rule-input-group:last-child {
+    padding: 12px;
+    border: 1px solid #d5dfff;
+    border-radius: 8px;
+    background: #f8faff;
+}
+
+.rule-input-group {
+    container-type: inline-size;
+    container-name: rule-input;
+}
+
+.rule-node-card,
+.rule-node-inputs,
+.rule-input-group,
+.rule-primitive-input {
+    min-width: 0;
+    max-width: 100%;
+}
+
+    .rule-node-inputs > *,
+    .rule-input-group > * {
+        min-width: 0;
+    }
+
+@container rule-input (max-width: 620px) {
+    .rule-node-card {
+        padding: 10px;
+        gap: 9px;
+    }
+
+    .rule-node-inputs,
+    .operation-equal > .rule-node-inputs,
+    .operation-notEqual > .rule-node-inputs,
+    .operation-greaterThan > .rule-node-inputs,
+    .operation-greaterThanOrEqual > .rule-node-inputs,
+    .operation-lessThan > .rule-node-inputs,
+    .operation-lessThanOrEqual > .rule-node-inputs,
+    .operation-add > .rule-node-inputs,
+    .operation-subtract > .rule-node-inputs,
+    .operation-multiply > .rule-node-inputs,
+    .operation-divide > .rule-node-inputs {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .rule-input-group {
+        padding: 8px;
+    }
+}
+
+@container rule-input (max-width: 420px) {
+    .rule-node-heading {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .rule-remove-step,
+    .rule-collapse-button {
+        justify-self: start;
+    }
+
+    .rule-nested-add {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.rule-data-reference {
+    position: relative;
+    z-index: 2;
+}
+
+.rule-reference-picker {
+    position: relative;
+    min-width: 0;
+}
+
+    .rule-reference-picker > label {
+        display: grid;
+        gap: 7px;
+    }
+
+.rule-reference-results {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 100;
+    max-height: 260px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 8px 20px rgb(16 24 40 / 14%);
+}
+
+.rule-condition-entry {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    padding: 8px 0;
+    border-bottom: 1px solid #e8edf5;
+}
+
+.rule-condition-label {
+    color: #475467;
+    font-size: .82rem;
+    font-weight: 700;
+}
+
+.rule-logic-help {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #f1f4ff;
+    color: #475467;
+    font-size: .88rem;
+}
+
+/* Switch esetek: minden kódhoz külön, könnyen áttekinthető műveletlista tartozik. */
+.rule-switch-case-list {
+    grid-column: 1 / -1;
+}
+
+.rule-switch-list-heading,
+.rule-switch-case-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+    .rule-switch-list-heading h4,
+    .rule-switch-case-heading h5,
+    .rule-switch-case-steps h5 {
+        margin: 0;
+    }
+
+    .rule-switch-list-heading .rule-muted {
+        margin: 4px 0 0;
+    }
+
+    .rule-switch-list-heading .rule-secondary {
+        min-height: 40px;
+        padding: 7px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #fff;
+        color: #344054;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+        .rule-switch-list-heading .rule-secondary:hover {
+            border-color: #315eea;
+            color: #234bd0;
+        }
+
+.rule-switch-empty {
+    margin: 0;
+    padding: 12px;
+    border-radius: 7px;
+    background: #f5f7fb;
+}
+
+.rule-switch-case {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid #d5dfff;
+    border-left: 4px solid #315eea;
+    border-radius: 8px;
+    background: #f8faff;
+}
+
+.rule-switch-case-heading {
+    padding-bottom: 9px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+    .rule-switch-case-heading h5,
+    .rule-switch-case-steps h5 {
+        color: #344054;
+        font-size: .92rem;
+    }
+
+.rule-switch-case-steps {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+@media (max-width: 520px) {
+    .rule-switch-list-heading,
+    .rule-switch-case-heading {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

@@ -1,0 +1,2679 @@
+﻿@page "/reports"
+@using System.Globalization
+@using System.Net.Http
+@using System.Net.Http.Json
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using Microsoft.JSInterop
+@using PayrollEngine.Web.Models
+@using PayrollEngine.Web.Components.Reports
+@using PayrollEngine.Web.Services
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Riportkészítő</PageTitle>
+
+<main class="report-builder-page">
+    <header class="report-builder-header">
+        <button type="button"
+                class="report-secondary"
+                @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <div>
+            <h1>Riportkészítő</h1>
+            <p>Riportok és dolgozónkénti dokumentumok összeállítása.</p>
+        </div>
+    </header>
+
+    <section class="report-toolbar">
+        <label class="report-search">
+            Riport keresése
+            <input @bind="_reportSearch"
+                   @bind:event="oninput"
+                   placeholder="Riportkód vagy név" />
+        </label>
+        <button type="button"
+                class="report-primary"
+                @onclick="NewReportAsync"
+                disabled="@IsBusy">
+            Új riport
+        </button>
+        <button type="button"
+                class="report-danger"
+                @onclick="OpenDeleteDialog"
+                disabled="@(IsBusy || _draft is null || _isNew)">
+            Törlés
+        </button>
+    </section>
+
+    <div class="report-workspace">
+        <aside class="report-list-card">
+            <div class="report-list-heading">
+                <h2>Riportok</h2>
+                <span>@FilteredReports.Count() db</span>
+            </div>
+
+            @if (_isLoadingReports)
+            {
+                <p class="report-muted">Betöltés…</p>
+            }
+            else
+            {
+                <div class="report-list">
+                    @foreach (var report in FilteredReports)
+                    {
+                        <button type="button"
+                                class="report-list-item @(Same(_draft?.ReportCode, report.ReportCode) ? "is-selected" : "")"
+                                @onclick="() => SelectReportAsync(report.ReportCode)"
+                                disabled="@IsBusy"
+                                @key="report.ReportCode">
+                            <strong>@report.Name</strong>
+                            <small>@report.ReportCode</small>
+                            <small>
+                                v@report.Version ·
+                                @(Same(report.LayoutMode, "EMPLOYEE_DOCUMENT")
+                                    ? "Dolgozónkénti dokumentum"
+                                    : "Táblázat")
+                            </small>
+                        </button>
+                    }
+                </div>
+
+                @if (!FilteredReports.Any())
+                {
+                    <p class="report-muted">Nincs találat.</p>
+                }
+            }
+        </aside>
+
+        @if (_draft is null)
+        {
+            <section class="report-editor-card report-empty-state">
+                <h2>Válassz riportot vagy hozz létre újat</h2>
+                <p>Először válaszd ki a riport módját és az adatforrást.</p>
+            </section>
+        }
+        else
+        {
+            <section class="report-editor-card">
+                <div class="report-editor-title">
+                    <div>
+                        <span class="report-eyebrow">
+                            @(_isNew ? "ÚJ RIPORT" : "RIPORT SZERKESZTÉSE")
+                        </span>
+                        <h2>@_draft.Name</h2>
+                        <small>@_draft.ReportCode</small>
+                    </div>
+                    <span class="report-status @(_draft.IsActive ? "is-active" : "is-inactive")">
+                        @(_draft.IsActive ? "Aktív" : "Inaktív")
+                    </span>
+                </div>
+
+                <div class="report-editor-toolbar">
+                    <nav class="report-tabs"
+                         aria-label="Riport beállításai"
+                         style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
+                        <button type="button"
+                                class="report-tab @(_activeTab == 0 ? "is-selected" : "")"
+                                @onclick="() => ChangeTab(0)"
+                                disabled="@IsBusy">
+                            1. Alapadatok
+                        </button>
+                        <button type="button"
+                                class="report-tab @(_activeTab == 1 ? "is-selected" : "")"
+                                @onclick="() => ChangeTab(1)"
+                                disabled="@IsBusy">
+                            2. Kimeneti mezők
+                        </button>
+                        <button type="button"
+                                class="report-tab @(_activeTab == 2 ? "is-selected" : "")"
+                                @onclick="() => ChangeTab(2)"
+                                disabled="@IsBusy">
+                            3. Szűrés és csoportosítás
+                        </button>
+
+                        @if (IsEmployeeDocument)
+                        {
+                            <button type="button"
+                                    class="report-tab @(_activeTab == 3 ? "is-selected" : "")"
+                                    @onclick="() => ChangeTab(3)"
+                                    disabled="@IsBusy">
+                                4. Fejléc
+                            </button>
+                        }
+
+                        <button type="button"
+                                class="report-tab @(_activeTab == 4 ? "is-selected" : "")"
+                                @onclick="() => ChangeTab(4)"
+                                disabled="@IsBusy">
+                            @(IsEmployeeDocument ? "5. Futtatás" : "4. Futtatás")
+                        </button>
+                    </nav>
+
+                    <div class="report-save-row">
+                        <span class="report-save-state">
+                            @(_isNew
+                                ? "Még nincs mentve"
+                                : IsDirty
+                                    ? "Nem mentett módosítások"
+                                    : "Minden módosítás mentve")
+                        </span>
+
+                        <div class="report-save-buttons">
+                            @if (!_isNew)
+                            {
+                                <button type="button"
+                                        class="report-secondary"
+                                        @onclick="DiscardChangesAsync"
+                                        disabled="@(IsBusy || !IsDirty)">
+                                    Visszavonás
+                                </button>
+                            }
+                            <button type="button"
+                                    class="report-primary"
+                                    @onclick="SaveAsync"
+                                    disabled="@(IsBusy || !_catalogReady)">
+                                @(_isSaving ? "Mentés…" : "Riport mentése")
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_isLoadingReferences)
+                {
+                    <p class="report-muted">Adatkatalógus betöltése…</p>
+                }
+                else if (!_catalogReady)
+                {
+                    <div class="report-catalog-error">
+                        <p>Az adatkatalógus nincs betöltve.</p>
+                        <button type="button"
+                                class="report-secondary"
+                                @onclick="ReloadCatalogAsync"
+                                disabled="@IsBusy">
+                            Újrapróbálás
+                        </button>
+                    </div>
+                }
+
+                <fieldset disabled="@IsBusy" class="report-editor-fieldset">
+                    @if (_activeTab == 0)
+                    {
+                        <section class="report-section">
+                            <h3>Riport alapadatai</h3>
+                            <div class="report-metadata-grid">
+                                <label>
+                                    Riportkód *
+                                    <input @bind="_draft.ReportCode"
+                                           maxlength="100"
+                                           disabled="@(!_isNew)" />
+                                </label>
+                                <label>
+                                    Riport neve *
+                                    <input @bind="_draft.Name" maxlength="200" />
+                                </label>
+                                <label>
+                                    Verzió
+                                    <input type="number" min="1" @bind="_draft.Version" />
+                                </label>
+                                <label class="report-active-toggle">
+                                    <input type="checkbox" @bind="_draft.IsActive" />
+                                    Aktív
+                                </label>
+                            </div>
+                        </section>
+
+                        <section class="report-section">
+                            <h3>Riport módja</h3>
+                            <div class="report-two-column">
+                                <label>
+                                    Megjelenítés
+                                    <select value="@_draft.LayoutMode"
+                                            @onchange="ChangeLayoutAsync">
+                                        <option value="TABLE">Táblázatos riport</option>
+                                        <option value="EMPLOYEE_DOCUMENT">
+                                            Dolgozónkénti dokumentum
+                                        </option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            @if (IsEmployeeDocument)
+                            {
+                                <p class="report-info">
+                                    A 2. pontban állíthatók össze az adatrészek.
+                                    A 4. pontban a közös fejléc szerkeszthető.
+                                    Dolgozónként külön Excel- vagy PDF-fájl készül.
+                                </p>
+                            }
+                        </section>
+
+                        <section class="report-section">
+                            <h3>@(IsEmployeeDocument ? "A fő adatrész adatforrása" : "Adatforrás")</h3>
+                            <div class="report-two-column">
+                                <label>
+                                    Adatforrás *
+                                    <select value="@_draft.DataSource"
+                                            @onchange="ChangeSourceAsync">
+                                        @if (!VisibleSources.Any(item => Same(item.Code, _draft.DataSource)))
+                                        {
+                                            <option value="@_draft.DataSource">
+                                                @_draft.DataSource
+                                            </option>
+                                        }
+                                        @foreach (var source in VisibleSources)
+                                        {
+                                            <option value="@source.Code">
+                                                @source.DisplayName
+                                            </option>
+                                        }
+                                    </select>
+                                </label>
+                                <div class="report-source-summary">
+                                    <strong>@_references.Count elérhető mező</strong>
+                                    <span>Az adatforrás határozza meg a választható mezőket.</span>
+                                </div>
+                            </div>
+
+                            @if (IsEmployeeDocument && !_supportsEmployeeDocuments)
+                            {
+                                <p class="report-info">
+                                    Válassz dolgozóhoz kapcsolható adatforrást.
+                                </p>
+                            }
+
+                            <p class="report-info">
+                                Adatforrásváltáskor a fő adatrész mezőit,
+                                szűrőit és csoportosítását újra kell összeállítani.
+                            </p>
+                        </section>
+
+                        <section class="report-section">
+                            <h3>A fő adatrész dátumszűrése</h3>
+                            <div class="report-two-column">
+                                <label>
+                                    Dátumszűrés módja
+                                    <select @bind="_draft.DateFilter.Mode">
+                                        <option value="NONE">Nincs dátumszűrés</option>
+                                        <option value="MONTH_RANGE">Havi időszak</option>
+                                        <option value="AS_OF_DATE">Adott napon érvényes adatok</option>
+                                        <option value="DATE_RANGE">Napi dátumtartomány</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            @if (Same(_draft.DateFilter.Mode, "NONE"))
+                            {
+                                <p class="report-info">
+                                    A fő adatrész dátumkorlátozás nélkül készül.
+                                </p>
+                            }
+                            else if (Same(_draft.DateFilter.Mode, "MONTH_RANGE"))
+                            {
+                                <div class="report-two-column report-spaced">
+                                    <label>
+                                        Periódusmező
+                                        <select @bind="_draft.DateFilter.DateField">
+                                            <option value="">Adatforrás alapbeállítása</option>
+                                            @foreach (var item in RootMonthFields)
+                                            {
+                                                <option value="@item.Reference">@item.DisplayName</option>
+                                            }
+                                        </select>
+                                    </label>
+                                </div>
+                            }
+                            else if (_draft.DateFilter.Mode is "AS_OF_DATE" or "DATE_RANGE")
+                            {
+                                @if (UsesValidityRange)
+                                {
+                                    <div class="report-two-column report-spaced">
+                                        <label>
+                                            Érvényesség kezdete
+                                            <select @bind="_draft.DateFilter.ValidFromField">
+                                                <option value="">Adatforrás alapbeállítása</option>
+                                                @foreach (var item in RootDateFields)
+                                                {
+                                                    <option value="@item.Reference">@item.DisplayName</option>
+                                                }
+                                            </select>
+                                        </label>
+                                        <label>
+                                            Érvényesség vége
+                                            <select @bind="_draft.DateFilter.ValidToField">
+                                                <option value="">Adatforrás alapbeállítása</option>
+                                                @foreach (var item in RootDateFields)
+                                                {
+                                                    <option value="@item.Reference">@item.DisplayName</option>
+                                                }
+                                            </select>
+                                        </label>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="report-two-column report-spaced">
+                                        <label>
+                                            Vizsgált dátummező *
+                                            <select @bind="_draft.DateFilter.DateField">
+                                                <option value="">Válassz dátummezőt</option>
+                                                @foreach (var item in RootDateFields)
+                                                {
+                                                    <option value="@item.Reference">@item.DisplayName</option>
+                                                }
+                                            </select>
+                                        </label>
+                                    </div>
+                                }
+                            }
+
+                            <p class="report-info">
+                                A konkrét időszakot a Futtatás fülön adhatod meg.
+                            </p>
+                        </section>
+
+                        <details class="report-advanced-settings">
+                            <summary>Speciális beállítások</summary>
+                            <div class="report-two-column report-spaced">
+                                <label>
+                                    Fájlnévminta
+                                    <input @bind="_draft.FileNamePattern"
+                                           placeholder="riport_{period}_{employeeId}" />
+                                </label>
+                                @if (!IsEmployeeDocument)
+                                {
+                                    <label>
+                                        XML gyökérelem
+                                        <input @bind="_draft.XmlRootElementName" />
+                                    </label>
+                                    <label>
+                                        XML rekordelem
+                                        <input @bind="_draft.XmlRecordElementName" />
+                                    </label>
+                                }
+                            </div>
+                        </details>
+
+                        <div class="report-step-actions">
+                            <button type="button"
+                                    class="report-primary"
+                                    @onclick="() => ChangeTab(1)">
+                                Tovább a mezőkhöz
+                            </button>
+                        </div>
+                    }
+
+                    @if (_activeTab == 1 && IsEmployeeDocument &&
+                         _draft.EmployeeDocument is not null)
+                    {
+                        <section class="report-section">
+                            <div class="report-section-heading">
+                                <div>
+                                    <h3>Adatrészek</h3>
+                                    <p>Válaszd ki a szerkesztendő adatrészt, vagy adj hozzá újat.</p>
+                                </div>
+                            </div>
+
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                                <button type="button"
+                                        class="@(Same(_selectedDataSectionCode, "__main") ? "report-primary" : "report-secondary")"
+                                        @onclick="SelectMainDataSectionAsync">
+                                    @MainSectionTitle
+                                </button>
+
+                                @foreach (var section in _draft.EmployeeDocument.AdditionalSections)
+                                {
+                                    <button type="button"
+                                            class="@(Same(_selectedDataSectionCode, section.Code) ? "report-primary" : "report-secondary")"
+                                            @onclick="() => SelectDataSectionAsync(section.Code)"
+                                            @key="section.Code">
+                                        @(string.IsNullOrWhiteSpace(section.Title)
+                                            ? "Névtelen adatrész"
+                                            : section.Title)
+                                        @(!section.IsEnabled ? " · kikapcsolva" : "")
+                                    </button>
+                                }
+
+                                <button type="button"
+                                        class="report-secondary"
+                                        @onclick="AddDocumentSection">
+                                    + Adatrész
+                                </button>
+                            </div>
+                        </section>
+                    }
+
+                    @if (IsEmployeeDocument && _draft.EmployeeDocument is not null)
+                    {
+                        <div hidden="@(_activeTab != 1)">
+                            <ReportEmployeeDocumentEditor @ref="_sectionsDocumentEditor"
+                                                          Configuration="_draft.EmployeeDocument"
+                                                          ShowHeader="false"
+                                                          ShowDataSections="true"
+                                                          SelectedSectionCode="@_selectedDataSectionCode"
+                                                          SelectedSectionCodeChanged="SelectDataSectionAsync"
+                                                          Disabled="@IsBusy"
+                                                          Changed="DocumentChangedAsync" />
+                        </div>
+                    }
+
+                    @if (_activeTab == 1 &&
+                         (!IsEmployeeDocument || Same(_selectedDataSectionCode, "__main")))
+                    {
+                        <section class="report-section">
+                            <div class="report-section-heading">
+                                <div>
+                                    <h3>@(IsEmployeeDocument ? "A fő adatrész oszlopai" : "Kimeneti mezők")</h3>
+                                    <p>A mezők a sorok lenyitásával szerkeszthetők.</p>
+                                </div>
+                                <button type="button"
+                                        class="report-secondary"
+                                        @onclick="AddField"
+                                        disabled="@(!_catalogReady)">
+                                    + Mező hozzáadása
+                                </button>
+                            </div>
+
+                            @if (_draft.Fields.Count == 0)
+                            {
+                                <p class="report-muted">Adj hozzá legalább egy mezőt.</p>
+                            }
+
+                            <div class="report-fields">
+                                @for (var index = 0; index < _draft.Fields.Count; index++)
+                                {
+                                    var itemIndex = index;
+                                    var item = _draft.Fields[index];
+
+                                    <details class="report-field-card report-collapsible-field"
+                                             open="@Same(_expandedFieldCode, item.Code)"
+                                             @key="item.Code">
+                                        <summary class="report-field-summary">
+                                            <span class="report-field-number">@(itemIndex + 1)</span>
+                                            <span class="report-field-summary-name">
+                                                <strong>@item.DisplayName</strong>
+                                                <small>@item.OutputName</small>
+                                            </span>
+                                            <span class="report-field-summary-value">
+                                                @(Same(item.Value.Kind, "CONSTANT")
+                                                    ? "Állandó érték"
+                                                    : string.IsNullOrWhiteSpace(item.Value.Reference)
+                                                        ? "Nincs adatmező kiválasztva"
+                                                        : ReferenceLabel(item.Value.Reference))
+                                            </span>
+                                        </summary>
+
+                                        <div class="report-field-body">
+                                            <div class="report-field-title">
+                                                <strong>Mező beállításai</strong>
+                                                <div class="report-field-actions">
+                                                    <button type="button"
+                                                            class="report-icon-button"
+                                                            @onclick="() => MoveField(itemIndex, -1)"
+                                                            disabled="@(itemIndex == 0)">
+                                                        ↑
+                                                    </button>
+                                                    <button type="button"
+                                                            class="report-icon-button"
+                                                            @onclick="() => MoveField(itemIndex, 1)"
+                                                            disabled="@(itemIndex == _draft.Fields.Count - 1)">
+                                                        ↓
+                                                    </button>
+                                                    <button type="button"
+                                                            class="report-danger report-small-button"
+                                                            @onclick="() => RemoveField(itemIndex)">
+                                                        Eltávolítás
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div class="report-field-grid">
+                                                <label>
+                                                    Megjelenített név *
+                                                    <input @bind="item.DisplayName" />
+                                                </label>
+                                                <label>
+                                                    Kimeneti oszlop neve *
+                                                    <input @bind="item.OutputName" />
+                                                </label>
+                                                <label>
+                                                    Érték forrása
+                                                    <select @bind="item.Value.Kind">
+                                                        <option value="REFERENCE">Adatmező</option>
+                                                        <option value="CONSTANT">Állandó érték</option>
+                                                    </select>
+                                                </label>
+
+                                                @if (Same(item.Value.Kind, "REFERENCE"))
+                                                {
+                                                    <label class="report-reference-field">
+                                                        Adatmező *
+                                                        <input type="text"
+                                                               list="@($"report-reference-{item.Code}")"
+                                                               value="@ReferenceInputValue(item)"
+                                                               @oninput="args => ChangeReferenceInput(item, args)"
+                                                               autocomplete="off"
+                                                               placeholder="Kezdj gépelni, majd válassz adatmezőt" />
+                                                        <datalist id="@($"report-reference-{item.Code}")">
+                                                            @foreach (var reference in _references)
+                                                            {
+                                                                <option value="@ReferenceOptionLabel(reference)"></option>
+                                                            }
+                                                        </datalist>
+                                                    </label>
+                                                }
+                                                else
+                                                {
+                                                    <label>
+                                                        Állandó érték típusa
+                                                        <select @bind="item.Value.ConstantType">
+                                                            <option value="text">Szöveg</option>
+                                                            <option value="decimal">Szám</option>
+                                                            <option value="boolean">Igen / nem</option>
+                                                            <option value="null">Üres érték</option>
+                                                            <option value="json">JSON-érték</option>
+                                                        </select>
+                                                    </label>
+
+                                                    @if (item.Value.ConstantType != "null")
+                                                    {
+                                                        <label>
+                                                            Állandó érték
+                                                            @if (item.Value.ConstantType == "boolean")
+                                                            {
+                                                                <select @bind="item.Value.ConstantText">
+                                                                    <option value="true">Igen</option>
+                                                                    <option value="false">Nem</option>
+                                                                </select>
+                                                            }
+                                                            else
+                                                            {
+                                                                <input @bind="item.Value.ConstantText" />
+                                                            }
+                                                        </label>
+                                                    }
+                                                }
+
+                                                <label>
+                                                    Összesítés
+                                                    <select @bind="item.Aggregation"
+                                                            disabled="@(!Same(_draft.Grouping.RowMode, "GROUPED"))">
+                                                        <option value="NONE">Nincs</option>
+                                                        <option value="SUM">Összeg</option>
+                                                        <option value="COUNT">Darabszám</option>
+                                                        <option value="MIN">Minimum</option>
+                                                        <option value="MAX">Maximum</option>
+                                                    </select>
+                                                </label>
+                                                <label>
+                                                    Excel számformátum
+                                                    <input @bind="item.Format" placeholder="0.00" />
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </details>
+                                }
+                            </div>
+                        </section>
+                    }
+
+                    @if (_activeTab == 1)
+                    {
+                        <div class="report-step-actions">
+                            <button type="button"
+                                    class="report-secondary"
+                                    @onclick="() => ChangeTab(0)">
+                                Vissza
+                            </button>
+                            <button type="button"
+                                    class="report-primary"
+                                    @onclick="() => ChangeTab(2)">
+                                Tovább
+                            </button>
+                        </div>
+                    }
+
+                    <div hidden="@(_activeTab != 2)">
+                        <ReportFilterEditor @ref="_mainFilterEditor"
+                                            Filters="_draft.Filters"
+                                            AvailableFields="@MainFilterFields"
+                                            Disabled="@(IsBusy || !_catalogReady)"
+                                            Changed="MainFiltersChangedAsync" />
+                    </div>
+
+                    @if (_activeTab == 2)
+                    {
+                        <section class="report-section">
+                            <h3>Futtatás szűrői</h3>
+                            <div class="report-two-column">
+                                @if (CanFilterEmployees)
+                                {
+                                    <label>
+                                        Dolgozóazonosítók
+                                        <input @bind="_employeeIdsText"
+                                               placeholder="Például 5, 12, 30" />
+                                        <small>Üresen hagyva nincs dolgozószűrés.</small>
+                                    </label>
+                                }
+                                @if (CanFilterCompany)
+                                {
+                                    <label>
+                                        Cégazonosító
+                                        <input @bind="_companyIdText"
+                                               placeholder="Például 1" />
+                                        <small>Üresen hagyva nincs cégszűrés.</small>
+                                    </label>
+                                }
+                            </div>
+                            <p class="report-info">
+                                A fenti mezőfeltételek a riporttal együtt mentődnek.
+                                A dolgozó- és cégszűrés az adott futtatásra vonatkozik.
+                            </p>
+                        </section>
+
+                        <section class="report-section">
+                            <h3>A fő adatrész csoportosítása</h3>
+                            <div class="report-two-column">
+                                <label>
+                                    Sorok kezelése
+                                    <select @bind="_draft.Grouping.RowMode">
+                                        <option value="DETAIL">Részletes sorok</option>
+                                        <option value="GROUPED">Csoportosított sorok</option>
+                                    </select>
+                                </label>
+
+                                <div class="report-reference-list">
+                                    <strong>Csoportosító mezők</strong>
+                                    @foreach (var reference in _draft.Grouping.GroupBy.ToArray())
+                                    {
+                                        <div class="report-reference-row" @key="reference">
+                                            <span>@ReferenceLabel(reference)</span>
+                                            <button type="button"
+                                                    class="report-text-button"
+                                                    @onclick="() => RemoveReference(_draft.Grouping.GroupBy, reference)">
+                                                Eltávolítás
+                                            </button>
+                                        </div>
+                                    }
+                                    <div class="report-reference-add">
+                                        <select @bind="_groupByToAdd">
+                                            <option value="">Válassz mezőt</option>
+                                            @foreach (var reference in AvailableForGrouping(_draft.Grouping.GroupBy))
+                                            {
+                                                <option value="@reference.Reference">@reference.DisplayName</option>
+                                            }
+                                        </select>
+                                        <button type="button"
+                                                class="report-secondary"
+                                                @onclick="AddGroupBy"
+                                                disabled="@string.IsNullOrWhiteSpace(_groupByToAdd)">
+                                            Hozzáadás
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="report-section">
+                            <h3>Fájlokra bontás</h3>
+                            @if (IsEmployeeDocument)
+                            {
+                                <p class="report-info">
+                                    Dolgozónként külön fájl készül.
+                                    A kiegészítő adatrészek ugyanabba a munkafüzetbe
+                                    vagy PDF-dokumentumba kerülnek.
+                                </p>
+                            }
+                            else
+                            {
+                                <div class="report-reference-list">
+                                    @foreach (var reference in _draft.Grouping.SplitFilesBy.ToArray())
+                                    {
+                                        <div class="report-reference-row" @key="reference">
+                                            <span>@ReferenceLabel(reference)</span>
+                                            <button type="button"
+                                                    class="report-text-button"
+                                                    @onclick="() => RemoveReference(_draft.Grouping.SplitFilesBy, reference)">
+                                                Eltávolítás
+                                            </button>
+                                        </div>
+                                    }
+                                    <div class="report-reference-add">
+                                        <select @bind="_splitByToAdd">
+                                            <option value="">Válassz mezőt</option>
+                                            @foreach (var reference in AvailableForGrouping(_draft.Grouping.SplitFilesBy))
+                                            {
+                                                <option value="@reference.Reference">@reference.DisplayName</option>
+                                            }
+                                        </select>
+                                        <button type="button"
+                                                class="report-secondary"
+                                                @onclick="AddSplitBy"
+                                                disabled="@string.IsNullOrWhiteSpace(_splitByToAdd)">
+                                            Hozzáadás
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </section>
+
+                        <div class="report-step-actions">
+                            <button type="button"
+                                    class="report-secondary"
+                                    @onclick="() => ChangeTab(1)">
+                                Vissza
+                            </button>
+                            <button type="button"
+                                    class="report-primary"
+                                    @onclick="() => ChangeTab(IsEmployeeDocument ? 3 : 4)">
+                                Tovább
+                            </button>
+                        </div>
+                    }
+
+                    @if (IsEmployeeDocument && _draft.EmployeeDocument is not null)
+                    {
+                        <div hidden="@(_activeTab != 3)">
+                            <ReportEmployeeDocumentEditor @ref="_headerDocumentEditor"
+                                                          Configuration="_draft.EmployeeDocument"
+                                                          ShowHeader="true"
+                                                          ShowDataSections="false"
+                                                          Disabled="@IsBusy"
+                                                          Changed="DocumentChangedAsync" />
+
+                            <div class="report-step-actions">
+                                <button type="button"
+                                        class="report-secondary"
+                                        @onclick="() => ChangeTab(2)">
+                                    Vissza
+                                </button>
+                                <button type="button"
+                                        class="report-primary"
+                                        @onclick="() => ChangeTab(4)">
+                                    Tovább a futtatáshoz
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    @if (_activeTab == 4)
+                    {
+                        <section class="report-section">
+                            <h3>Lekérdezés időszaka</h3>
+                            <div class="report-two-column">
+                                <label>
+                                    A fő adatrész dátumszűrése
+                                    <select @bind="_draft.DateFilter.Mode">
+                                        <option value="NONE">Nincs dátumszűrés</option>
+                                        <option value="MONTH_RANGE">Havi időszak</option>
+                                        <option value="AS_OF_DATE">Adott napon érvényes adatok</option>
+                                        <option value="DATE_RANGE">Napi dátumtartomány</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            @if (NeedsDateMode("MONTH_RANGE"))
+                            {
+                                <div class="report-period-inputs">
+                                    <label>
+                                        Kezdő hónap *
+                                        <input type="month"
+                                               value="@_periodFrom"
+                                               @onchange="args => _periodFrom = EventText(args)" />
+                                    </label>
+                                    <label>
+                                        Záró hónap *
+                                        <input type="month"
+                                               value="@_periodTo"
+                                               @onchange="args => _periodTo = EventText(args)" />
+                                    </label>
+                                </div>
+                            }
+
+                            @if (NeedsDateMode("AS_OF_DATE"))
+                            {
+                                <div class="report-period-inputs">
+                                    <label>
+                                        Érvényességi dátum *
+                                        <input type="date"
+                                               value="@_asOfDate"
+                                               @onchange="args => _asOfDate = EventText(args)" />
+                                    </label>
+                                </div>
+                            }
+
+                            @if (NeedsDateMode("DATE_RANGE"))
+                            {
+                                <div class="report-period-inputs">
+                                    <label>
+                                        Kezdő dátum *
+                                        <input type="date"
+                                               value="@_dateFrom"
+                                               @onchange="args => _dateFrom = EventText(args)" />
+                                    </label>
+                                    <label>
+                                        Záró dátum *
+                                        <input type="date"
+                                               value="@_dateTo"
+                                               @onchange="args => _dateTo = EventText(args)" />
+                                    </label>
+                                </div>
+                            }
+
+                            @if (!NeedsDateMode("MONTH_RANGE") &&
+                                 !NeedsDateMode("AS_OF_DATE") &&
+                                 !NeedsDateMode("DATE_RANGE"))
+                            {
+                                <p class="report-info">
+                                    A riporthoz nincs dátumszűrés.
+                                </p>
+                            }
+
+                            @if (IsEmployeeDocument)
+                            {
+                                <p class="report-info">
+                                    A fejléc és a kiegészítő adatrészek ezt a közös
+                                    időszakot használják. Havi időszaknál a napi
+                                    tartomány a kezdő hónap első napjától a záró
+                                    hónap utolsó napjáig tart.
+                                </p>
+                            }
+
+                            @if (MainUsesDynamicFields &&
+                                 Same(_draft.DateFilter.Mode, "NONE"))
+                            {
+                                <p class="report-info">
+                                    A dinamikus mezők értékének kiválasztásához
+                                    érvényességi dátum szükséges akkor is, ha
+                                    a fő adatrész sorait nem korlátozza dátumszűrés.
+                                </p>
+                            }
+
+                            <button type="button"
+                                    class="report-text-button"
+                                    @onclick="() => ChangeTab(0)">
+                                Dátummezők beállítása
+                            </button>
+                        </section>
+
+                        <section class="report-section">
+                            <h3>Export áttekintése</h3>
+                            <dl class="report-run-summary">
+                                <div>
+                                    <dt>Riport</dt>
+                                    <dd>@_draft.Name</dd>
+                                </div>
+                                <div>
+                                    <dt>Mód</dt>
+                                    <dd>@(IsEmployeeDocument ? "Dolgozónkénti dokumentum" : "Táblázatos riport")</dd>
+                                </div>
+                                <div>
+                                    <dt>Fő adatforrás</dt>
+                                    <dd>
+                                        @(_sources.FirstOrDefault(item =>
+                                            Same(item.Code, _draft.DataSource))?.DisplayName
+                                            ?? _draft.DataSource)
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Fő adatrész oszlopai</dt>
+                                    <dd>@_draft.Fields.Count</dd>
+                                </div>
+                                <div>
+                                    <dt>Mentett szűrőfeltételek</dt>
+                                    <dd>@_draft.Filters.Count</dd>
+                                </div>
+
+                                @if (IsEmployeeDocument && _draft.EmployeeDocument is not null)
+                                {
+                                    <div>
+                                        <dt>Fejlécmezők</dt>
+                                        <dd>
+                                            @(_draft.EmployeeDocument.Header.IsEnabled
+                                                ? _draft.EmployeeDocument.Header.Fields.Count
+                                                : 0)
+                                        </dd>
+                                    </div>
+                                    <div>
+                                        <dt>Kiegészítő adatrészek</dt>
+                                        <dd>
+                                            @_draft.EmployeeDocument.AdditionalSections.Count(item => item.IsEnabled)
+                                        </dd>
+                                    </div>
+                                }
+
+                                <div>
+                                    <dt>Dolgozószűrés</dt>
+                                    <dd>@(string.IsNullOrWhiteSpace(_employeeIdsText) ? "Nincs" : _employeeIdsText)</dd>
+                                </div>
+                                <div>
+                                    <dt>Cégszűrés</dt>
+                                    <dd>@(string.IsNullOrWhiteSpace(_companyIdText) ? "Nincs" : _companyIdText)</dd>
+                                </div>
+                            </dl>
+                        </section>
+
+                        <section class="report-section report-export-section">
+                            <h3>Letöltés</h3>
+                            <div class="report-two-column">
+                                <label>
+                                    Fájlformátum
+                                    <select @bind="_exportFormat">
+                                        <option value="XLSX">Excel (.xlsx)</option>
+                                        <option value="PDF">PDF</option>
+                                        @if (!IsEmployeeDocument)
+                                        {
+                                            <option value="TXT">Tabulátorral tagolt szöveg (.txt)</option>
+                                            <option value="XML">XML</option>
+                                        }
+                                    </select>
+                                </label>
+                            </div>
+
+                            @if (IsDirty)
+                            {
+                                <p class="report-info">
+                                    Exportálás előtt mentsd a módosításokat.
+                                </p>
+                            }
+
+                            <div class="report-export-actions">
+                                <p class="report-muted">Több fájl esetén ZIP készül.</p>
+                                <button type="button"
+                                        class="report-primary"
+                                        @onclick="ExportAsync"
+                                        disabled="@(_isNew || IsDirty || !_catalogReady || !_draft.IsActive)">
+                                    @(_isExporting ? "Exportálás…" : "Export letöltése")
+                                </button>
+                            </div>
+                        </section>
+                    }
+                </fieldset>
+            </section>
+        }
+    </div>
+
+    @if (_showDeleteDialog && _draft is not null)
+    {
+        <div class="report-dialog-backdrop" @onclick="CloseDeleteDialog">
+            <section class="report-delete-dialog"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="report-delete-title"
+                     @onclick:stopPropagation="true">
+                <h2 id="report-delete-title">Riport törlése</h2>
+                <p>Biztosan törlöd a(z) <strong>@_draft.Name</strong> riportot?</p>
+                <div class="report-dialog-actions">
+                    <button type="button"
+                            class="report-secondary"
+                            @onclick="CloseDeleteDialog"
+                            disabled="@IsBusy">
+                        Mégse
+                    </button>
+                    <button type="button"
+                            class="report-danger"
+                            @onclick="DeleteAsync"
+                            disabled="@IsBusy">
+                        Törlés
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private readonly List<ReportDefinition> _reports = [];
+    private readonly List<ReportReference> _references = [];
+    private readonly List<ReportSource> _sources = [];
+
+    private ReportDefinition? _draft;
+    private ReportValidity? _sourceValidity;
+    private ReportEmployeeDocumentEditor? _headerDocumentEditor;
+    private ReportEmployeeDocumentEditor? _sectionsDocumentEditor;
+    private ReportFilterEditor? _mainFilterEditor;
+
+    private string? _employeeIdField;
+    private string? _companyIdField;
+    private string? _expandedFieldCode;
+
+    private bool _supportsEmployeeDocuments;
+    private bool _isLoadingReports;
+    private bool _isLoadingReferences;
+    private bool _isSaving;
+    private bool _isExporting;
+    private bool _isNew;
+    private bool _showDeleteDialog;
+    private bool _catalogReady;
+
+    private int _activeTab;
+    private string _selectedDataSectionCode = "__main";
+    private string _savedSignature = "";
+    private string _mainFilterEditorState = "";
+    private string _reportSearch = "";
+    private string _groupByToAdd = "";
+    private string _splitByToAdd = "";
+    private string _employeeIdsText = "";
+    private string _companyIdText = "";
+    private string _exportFormat = "XLSX";
+
+    private string _periodFrom =
+        DateTime.Today.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+
+    private string _periodTo =
+        DateTime.Today.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+
+    private string _asOfDate =
+        DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private string _dateFrom =
+        DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private string _dateTo =
+        DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private bool IsBusy =>
+        _isLoadingReports || _isLoadingReferences || _isSaving || _isExporting;
+
+    private bool IsEmployeeDocument =>
+        Same(_draft?.LayoutMode, "EMPLOYEE_DOCUMENT");
+
+    private bool IsDirty =>
+        _draft is not null &&
+        (_isNew || EditorSignature() != _savedSignature);
+
+    private bool CanFilterEmployees =>
+        !string.IsNullOrWhiteSpace(_employeeIdField);
+
+    private bool CanFilterCompany =>
+        CanFilterEmployees || !string.IsNullOrWhiteSpace(_companyIdField);
+
+    private bool UsesValidityRange =>
+        NullIfEmpty(_draft?.DateFilter.ValidFromField) is not null ||
+        NullIfEmpty(_sourceValidity?.ValidFromField) is not null;
+
+    private string MainSectionTitle =>
+        string.IsNullOrWhiteSpace(_draft?.EmployeeDocument?.MainSectionTitle)
+            ? "Fő adatrész"
+            : _draft!.EmployeeDocument!.MainSectionTitle;
+
+    private IEnumerable<ReportSource> VisibleSources => _sources
+        .Where(item => !IsEmployeeDocument || item.SupportsEmployeeDocuments);
+
+    private IEnumerable<ReportDefinition> FilteredReports => _reports
+        .Where(item =>
+            string.IsNullOrWhiteSpace(_reportSearch) ||
+            item.ReportCode.Contains(
+                _reportSearch.Trim(),
+                StringComparison.OrdinalIgnoreCase) ||
+            item.Name.Contains(
+                _reportSearch.Trim(),
+                StringComparison.OrdinalIgnoreCase))
+        .OrderBy(item => item.Name);
+
+    private IEnumerable<ReportReference> RootDateFields => _references
+        .Where(item =>
+            item.RequiredRelationCode is null &&
+            (Same(item.DataType, "date") ||
+             Same(item.DataType, "datetime")));
+
+    private IEnumerable<ReportReference> RootMonthFields => _references
+        .Where(item =>
+            item.RequiredRelationCode is null &&
+            Same(item.DataType, "month"));
+
+    private IReadOnlyList<ReportFilterEditor.FieldOption> MainFilterFields =>
+        _references
+            .Where(item => item.CanFilter)
+            .Select(item => new ReportFilterEditor.FieldOption
+            {
+                Reference = item.Reference,
+                DisplayName = item.DisplayName,
+                DataType = item.DataType ?? "text"
+            })
+            .ToArray();
+
+    private bool MainUsesDynamicFields
+    {
+        get
+        {
+            if (_draft is null)
+                return false;
+
+            var usedReferences = _draft.Fields
+                .Where(item => Same(item.Value.Kind, "REFERENCE"))
+                .Select(item => item.Value.Reference)
+                .Concat(_draft.Filters.Select(item => (string?)item.Field))
+                .Concat(_draft.Grouping.GroupBy.Select(item => (string?)item))
+                .Concat(_draft.Grouping.SplitFilesBy.Select(item => (string?)item))
+                .Concat(_draft.Grouping.SortBy.Select(item => (string?)item))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return _references.Any(item =>
+                item.IsDynamic && usedReferences.Contains(item.Reference));
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadReportsAsync();
+    }
+
+    private void ChangeTab(int tab)
+    {
+        if (!IsBusy && tab >= 0 && tab <= 4 &&
+            (tab != 3 || IsEmployeeDocument))
+        {
+            _activeTab = tab;
+        }
+    }
+
+    private Task SelectMainDataSectionAsync() =>
+        SelectDataSectionAsync("__main");
+
+    private Task SelectDataSectionAsync(string code)
+    {
+        if (IsBusy || _draft?.EmployeeDocument is null)
+            return Task.CompletedTask;
+
+        if (!Same(code, "__main") &&
+            !_draft.EmployeeDocument.AdditionalSections.Any(item =>
+                Same(item.Code, code)))
+        {
+            return Task.CompletedTask;
+        }
+
+        _selectedDataSectionCode = code;
+        _activeTab = 1;
+
+        return Task.CompletedTask;
+    }
+
+    private void AddDocumentSection()
+    {
+        if (IsBusy || !IsEmployeeDocument)
+            return;
+
+        EnsureDocumentConfiguration();
+
+        var configuration = _draft!.EmployeeDocument!;
+        var number = configuration.AdditionalSections.Count + 2;
+
+        var section = new ReportDocumentSectionEditorDefinition
+        {
+            Title = $"Adatrész {number}",
+            WorksheetName = $"Adatok {number}"
+        };
+
+        configuration.AdditionalSections.Add(section);
+        _selectedDataSectionCode = section.Code;
+        _activeTab = 1;
+    }
+
+    private async Task LoadReportsAsync(string? selectedCode = null)
+    {
+        _isLoadingReports = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                "api/reports");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A riportok betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var reports = await response.Content
+                .ReadFromJsonAsync<List<ReportDefinition>>(JsonOptions) ?? [];
+
+            _reports.Clear();
+            _reports.AddRange(reports);
+
+            var selected = _reports.FirstOrDefault(item =>
+                Same(item.ReportCode, selectedCode)) ?? _reports.FirstOrDefault();
+
+            if (selected is null)
+            {
+                _draft = null;
+                await LoadCatalogAsync("PAYROLL_RESULT");
+            }
+            else
+            {
+                await SetDraftAsync(selected, false);
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch
+        {
+            Feedback.ShowError("A riportok betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoadingReports = false;
+        }
+    }
+
+    private async Task<bool> LoadCatalogAsync(string sourceCode)
+    {
+        _isLoadingReferences = true;
+        _catalogReady = false;
+        _references.Clear();
+        _sourceValidity = null;
+        _employeeIdField = null;
+        _companyIdField = null;
+        _supportsEmployeeDocuments = false;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/reports/data-catalog?sourceCode={Uri.EscapeDataString(sourceCode)}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "Az adatkatalógus betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var catalog = await response.Content
+                .ReadFromJsonAsync<ReportDataCatalogResponse>(JsonOptions);
+
+            if (catalog is null || !Same(catalog.SourceCode, sourceCode))
+                throw new InvalidOperationException();
+
+            _references.AddRange(
+                catalog.References.OrderBy(item => item.DisplayName));
+
+            _sources.Clear();
+            _sources.AddRange(
+                catalog.Sources.OrderBy(item => item.DisplayName));
+
+            _sourceValidity = catalog.Validity;
+            _employeeIdField = catalog.EmployeeIdField;
+            _companyIdField = catalog.CompanyIdField;
+            _supportsEmployeeDocuments = catalog.SupportsEmployeeDocuments;
+            _catalogReady = true;
+
+            return true;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch
+        {
+            Feedback.ShowError("Az adatkatalógus feldolgozása sikertelen.");
+            return false;
+        }
+        finally
+        {
+            _isLoadingReferences = false;
+        }
+    }
+
+    private async Task ReloadCatalogAsync()
+    {
+        if (_draft is not null && !IsBusy)
+            await LoadCatalogAsync(_draft.DataSource);
+    }
+
+    private async Task SetDraftAsync(ReportDefinition report, bool isNew)
+    {
+        _draft = Clone(report);
+        _activeTab = 0;
+        _selectedDataSectionCode = "__main";
+        _expandedFieldCode = null;
+        _mainFilterEditorState = "";
+
+        _draft.LayoutMode = string.IsNullOrWhiteSpace(_draft.LayoutMode)
+            ? "TABLE"
+            : _draft.LayoutMode.Trim().ToUpperInvariant();
+
+        _draft.DateFilter ??= new();
+        _draft.Grouping ??= new();
+        _draft.Grouping.GroupBy ??= [];
+        _draft.Grouping.SplitFilesBy ??= [];
+        _draft.Grouping.SortBy ??= [];
+        _draft.Relations ??= [];
+        _draft.Fields ??= [];
+        _draft.Filters ??= [];
+        _draft.AdditionalProperties ??= new();
+
+        _draft.DateFilter.Mode =
+            (_draft.DateFilter.Mode ?? "MONTH_RANGE").Trim().ToUpperInvariant();
+
+        foreach (var relation in _draft.Relations)
+        {
+            relation.DateFilter ??= new() { Mode = "NONE" };
+            relation.DateFilter.Mode =
+                (relation.DateFilter.Mode ?? "NONE").Trim().ToUpperInvariant();
+        }
+
+        foreach (var filter in _draft.Filters)
+        {
+            filter.Operator = string.IsNullOrWhiteSpace(filter.Operator)
+                ? "EQUALS"
+                : filter.Operator.Trim().ToUpperInvariant();
+        }
+
+        EnsureDocumentConfiguration();
+
+        _isNew = isNew;
+        _showDeleteDialog = false;
+        _groupByToAdd = "";
+        _splitByToAdd = "";
+        _employeeIdsText = "";
+        _companyIdText = "";
+
+        foreach (var item in _draft.Fields)
+        {
+            item.Value ??= new();
+            InitializeConstantEditor(item.Value);
+            item.ReferenceSearch = "";
+        }
+
+        if (IsEmployeeDocument && _exportFormat is not ("XLSX" or "PDF"))
+            _exportFormat = "XLSX";
+
+        await LoadCatalogAsync(_draft.DataSource);
+
+        _savedSignature = EditorSignature();
+    }
+
+    private void EnsureDocumentConfiguration()
+    {
+        if (_draft is null || !IsEmployeeDocument)
+            return;
+
+        _draft.EmployeeDocument ??= new ReportEmployeeDocumentEditorDefinition
+        {
+            MainSectionTitle = "Fő adatrész",
+            MainWorksheetName = "Adatok"
+        };
+
+        _draft.EmployeeDocument.Header ??= new();
+        _draft.EmployeeDocument.AdditionalSections ??= [];
+    }
+
+    private Task ChangeLayoutAsync(ChangeEventArgs args)
+    {
+        if (_draft is null || IsBusy)
+            return Task.CompletedTask;
+
+        _draft.LayoutMode = EventText(args);
+        EnsureDocumentConfiguration();
+        _selectedDataSectionCode = "__main";
+
+        if (IsEmployeeDocument)
+        {
+            _draft.Grouping.SplitFilesBy.Clear();
+
+            if (_exportFormat is not ("XLSX" or "PDF"))
+                _exportFormat = "XLSX";
+        }
+        else if (_activeTab == 3)
+        {
+            _activeTab = 0;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task SelectReportAsync(string code)
+    {
+        if (IsBusy)
+            return;
+
+        var report = _reports.FirstOrDefault(item =>
+            Same(item.ReportCode, code));
+
+        if (report is not null)
+            await SetDraftAsync(report, false);
+    }
+
+    private async Task NewReportAsync()
+    {
+        if (IsBusy)
+            return;
+
+        var code = "UJ_RIPORT";
+        var suffix = 2;
+
+        while (_reports.Any(item => Same(item.ReportCode, code)))
+            code = $"UJ_RIPORT_{suffix++}";
+
+        await SetDraftAsync(new ReportDefinition
+        {
+            ReportCode = code,
+            Name = "Új riport",
+            DataSource = "PAYROLL_RESULT",
+            DateFilter = new ReportDateFilter
+            {
+                Mode = "MONTH_RANGE"
+            },
+            XmlRootElementName = "Report",
+            XmlRecordElementName = "Record",
+            FileNamePattern = "riport_{period}",
+            Fields =
+            [
+                CreateField(
+                    "employeeId",
+                    "Dolgozóazonosító",
+                    "EmployeeId",
+                    "dbo.PayrollResult.EmployeeId"),
+                CreateField(
+                    "period",
+                    "Periódus",
+                    "Period",
+                    "dbo.PayrollResult.Period"),
+                CreateField(
+                    "element",
+                    "Bérelemkód",
+                    "PayrollElement",
+                    "dbo.PayrollElement.Code"),
+                CreateField(
+                    "amount",
+                    "Összeg",
+                    "Amount",
+                    "dbo.PayrollResult.Amount")
+            ]
+        }, true);
+    }
+
+    private async Task ChangeSourceAsync(ChangeEventArgs args)
+    {
+        if (_draft is null || IsBusy)
+            return;
+
+        var code = EventText(args);
+
+        if (string.IsNullOrWhiteSpace(code) ||
+            Same(code, _draft.DataSource))
+        {
+            return;
+        }
+
+        var oldCode = _draft.DataSource;
+
+        if (!await LoadCatalogAsync(code))
+        {
+            await LoadCatalogAsync(oldCode);
+            return;
+        }
+
+        _draft.DataSource = code;
+        _draft.Fields.Clear();
+        _draft.Filters.Clear();
+        _draft.Grouping = new();
+        _draft.Relations.Clear();
+        _mainFilterEditorState = "";
+
+        foreach (var key in _draft.AdditionalProperties.Keys
+                     .Where(item => Same(item, "filters") || Same(item, "parameters"))
+                     .ToArray())
+        {
+            _draft.AdditionalProperties.Remove(key);
+        }
+
+        _draft.DateFilter = new()
+        {
+            Mode = RootMonthFields.Any() ? "MONTH_RANGE" : "NONE"
+        };
+
+        _selectedDataSectionCode = "__main";
+        _expandedFieldCode = null;
+        _groupByToAdd = "";
+        _splitByToAdd = "";
+        _employeeIdsText = "";
+        _companyIdText = "";
+    }
+
+    private static ReportField CreateField(
+        string code,
+        string name,
+        string outputName,
+        string reference)
+    {
+        return new ReportField
+        {
+            Code = code,
+            DisplayName = name,
+            OutputName = outputName,
+            Value = new ReportValue
+            {
+                Kind = "REFERENCE",
+                Reference = reference
+            }
+        };
+    }
+
+    private void AddField()
+    {
+        if (_draft is null || !_catalogReady || IsBusy)
+            return;
+
+        var index = 1;
+
+        while (_draft.Fields.Any(item =>
+                   Same(item.Code, $"field{index}")))
+        {
+            index++;
+        }
+
+        _draft.Fields.Add(CreateField(
+            $"field{index}",
+            $"Mező {index}",
+            $"Field{index}",
+            ""));
+
+        _expandedFieldCode = _draft.Fields[^1].Code;
+    }
+
+    private static string ReferenceOptionLabel(ReportReference reference)
+    {
+        var category = string.IsNullOrWhiteSpace(reference.Category)
+            ? ""
+            : $"{reference.Category} / ";
+
+        return $"{category}{reference.DisplayName} ({reference.Reference})";
+    }
+
+    private string ReferenceInputValue(ReportField item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.ReferenceSearch))
+            return item.ReferenceSearch;
+
+        var reference = _references.FirstOrDefault(candidate =>
+            Same(candidate.Reference, item.Value.Reference));
+
+        return reference is not null
+            ? ReferenceOptionLabel(reference)
+            : item.Value.Reference ?? "";
+    }
+
+    private void ChangeReferenceInput(
+        ReportField item,
+        ChangeEventArgs args)
+    {
+        var text = EventText(args);
+        item.ReferenceSearch = text;
+
+        var reference = _references.FirstOrDefault(candidate =>
+            Same(candidate.Reference, text.Trim()) ||
+            Same(ReferenceOptionLabel(candidate), text.Trim()));
+
+        if (reference is null)
+        {
+            var matches = _references
+                .Where(candidate => Same(candidate.DisplayName, text.Trim()))
+                .Take(2)
+                .ToArray();
+
+            if (matches.Length == 1)
+                reference = matches[0];
+        }
+
+        item.Value.Reference = reference?.Reference;
+
+        if (reference is not null &&
+            (string.IsNullOrWhiteSpace(item.DisplayName) ||
+             item.DisplayName.StartsWith("Mező ", StringComparison.Ordinal)))
+        {
+            item.DisplayName = reference.DisplayName;
+        }
+    }
+
+    private void RemoveField(int index)
+    {
+        if (IsBusy)
+            return;
+
+        if (_draft is not null &&
+            index >= 0 &&
+            index < _draft.Fields.Count)
+        {
+            _draft.Fields.RemoveAt(index);
+        }
+    }
+
+    private void MoveField(int index, int offset)
+    {
+        if (_draft is null || IsBusy)
+            return;
+
+        var target = index + offset;
+
+        if (index < 0 || target < 0 ||
+            index >= _draft.Fields.Count ||
+            target >= _draft.Fields.Count)
+        {
+            return;
+        }
+
+        (_draft.Fields[index], _draft.Fields[target]) =
+            (_draft.Fields[target], _draft.Fields[index]);
+    }
+
+    private IEnumerable<ReportReference> AvailableForGrouping(
+        List<string> selected)
+    {
+        return _references.Where(item =>
+            item.CanGroup &&
+            !selected.Contains(
+                item.Reference,
+                StringComparer.OrdinalIgnoreCase));
+    }
+
+    private string ReferenceLabel(string reference)
+    {
+        return _references.FirstOrDefault(item =>
+            Same(item.Reference, reference))?.DisplayName ?? reference;
+    }
+
+    private void AddGroupBy()
+    {
+        if (_draft is not null && !IsBusy)
+            AddReference(_draft.Grouping.GroupBy, _groupByToAdd);
+
+        _groupByToAdd = "";
+    }
+
+    private void AddSplitBy()
+    {
+        if (_draft is not null && !IsEmployeeDocument && !IsBusy)
+            AddReference(_draft.Grouping.SplitFilesBy, _splitByToAdd);
+
+        _splitByToAdd = "";
+    }
+
+    private static void AddReference(
+        List<string> target,
+        string reference)
+    {
+        if (!string.IsNullOrWhiteSpace(reference) &&
+            !target.Contains(reference, StringComparer.OrdinalIgnoreCase))
+        {
+            target.Add(reference);
+        }
+    }
+
+    private static void RemoveReference(
+        List<string> target,
+        string reference)
+    {
+        target.RemoveAll(item => Same(item, reference));
+    }
+
+    private Task MainFiltersChangedAsync()
+    {
+        _mainFilterEditorState =
+            _mainFilterEditor?.EditorSignature() ?? "";
+
+        return Task.CompletedTask;
+    }
+
+    private bool ValidateDraft()
+    {
+        if (_draft is null || !_catalogReady)
+            return false;
+
+        if (string.IsNullOrWhiteSpace(_draft.ReportCode) ||
+            _draft.ReportCode.Length > 100 ||
+            _draft.ReportCode.Any(character =>
+                !(char.IsAsciiLetterOrDigit(character) ||
+                  character is '_' or '-')))
+        {
+            _activeTab = 0;
+            return Error(
+                "A riportkód legfeljebb 100 betűt, számot, aláhúzást és kötőjelet tartalmazhat.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_draft.Name) ||
+            _draft.Name.Length > 200)
+        {
+            _activeTab = 0;
+            return Error("Adj meg legfeljebb 200 karakteres riportnevet.");
+        }
+
+        if (_draft.Version < 1)
+        {
+            _activeTab = 0;
+            return Error("A verziónak pozitívnak kell lennie.");
+        }
+
+        if (!Same(_draft.LayoutMode, "TABLE") && !IsEmployeeDocument)
+            return Error("Ismeretlen riportmód.");
+
+        if (IsEmployeeDocument && !_supportsEmployeeDocuments)
+        {
+            _activeTab = 0;
+            return Error("Válassz dolgozóhoz kapcsolható fő adatforrást.");
+        }
+
+        if (_draft.Fields.Count == 0)
+        {
+            ShowMainFields();
+            return Error("Adj hozzá legalább egy fő kimeneti mezőt.");
+        }
+
+        var outputNames = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in _draft.Fields)
+        {
+            if (string.IsNullOrWhiteSpace(item.DisplayName) ||
+                string.IsNullOrWhiteSpace(item.OutputName) ||
+                !outputNames.Add(item.OutputName.Trim()))
+            {
+                ShowMainFields(item.Code);
+                return Error(
+                    "A mezőnevek kötelezők, a kimeneti oszlopnevek nem ismétlődhetnek.");
+            }
+
+            if (Same(item.Value.Kind, "REFERENCE") &&
+                !_references.Any(reference =>
+                    Same(reference.Reference, item.Value.Reference)))
+            {
+                ShowMainFields(item.Code);
+                return Error(
+                    $"Válassz adatmezőt a találatokból: {item.DisplayName}");
+            }
+
+            if (Same(item.Value.Kind, "CONSTANT"))
+            {
+                try
+                {
+                    BuildConstant(item.Value);
+                }
+                catch
+                {
+                    ShowMainFields(item.Code);
+                    return Error(
+                        $"Érvénytelen állandó érték: {item.DisplayName}");
+                }
+            }
+            else if (!Same(item.Value.Kind, "REFERENCE"))
+            {
+                ShowMainFields(item.Code);
+                return Error(
+                    $"Ismeretlen értékforrás: {item.DisplayName}");
+            }
+
+            if (Same(_draft.Grouping.RowMode, "GROUPED") &&
+                !Same(item.Aggregation, "NONE") &&
+                !Same(item.Value.Kind, "REFERENCE"))
+            {
+                ShowMainFields(item.Code);
+                return Error("Összesítés csak adatmezőn használható.");
+            }
+        }
+
+        if (Same(_draft.Grouping.RowMode, "GROUPED") &&
+            _draft.Grouping.GroupBy.Count == 0)
+        {
+            _activeTab = 2;
+            return Error("Válassz legalább egy csoportosító mezőt.");
+        }
+
+        if (_mainFilterEditor is null)
+        {
+            _activeTab = 2;
+            return Error("A szűrőszerkesztő még nincs betöltve.");
+        }
+
+        if (!_mainFilterEditor.Validate())
+        {
+            _activeTab = 2;
+            return false;
+        }
+
+        if (!ValidateDateDefinition())
+        {
+            _activeTab = 0;
+            return false;
+        }
+
+        if (IsEmployeeDocument)
+        {
+            if (_draft.EmployeeDocument is null ||
+                _sectionsDocumentEditor is null ||
+                _headerDocumentEditor is null)
+            {
+                _activeTab = 1;
+                return Error(
+                    "A dokumentumszerkesztők még nincsenek betöltve.");
+            }
+
+            if (!_sectionsDocumentEditor.Validate())
+            {
+                _activeTab = 1;
+                _selectedDataSectionCode =
+                    _sectionsDocumentEditor.InvalidSectionCode ?? "__main";
+
+                return false;
+            }
+
+            if (!_headerDocumentEditor.Validate())
+            {
+                _activeTab = 3;
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void ShowMainFields(string? code = null)
+    {
+        _activeTab = 1;
+        _selectedDataSectionCode = "__main";
+        _expandedFieldCode = code;
+    }
+
+    private bool ValidateDateDefinition()
+    {
+        if (_draft is null)
+            return false;
+
+        var filter = _draft.DateFilter;
+
+        if (Same(filter.Mode, "NONE"))
+            return true;
+
+        if (Same(filter.Mode, "MONTH_RANGE"))
+        {
+            var reference =
+                NullIfEmpty(filter.DateField) ?? _sourceValidity?.DateField;
+
+            return RootMonthFields.Any(item =>
+                       Same(item.Reference, reference)) ||
+                   Error("A havi szűréshez válassz periódusmezőt.");
+        }
+
+        if (!Same(filter.Mode, "AS_OF_DATE") &&
+            !Same(filter.Mode, "DATE_RANGE"))
+        {
+            return Error("Ismeretlen dátumszűrési mód.");
+        }
+
+        if (UsesValidityRange)
+        {
+            var from = NullIfEmpty(filter.ValidFromField)
+                ?? _sourceValidity?.ValidFromField;
+
+            var to = NullIfEmpty(filter.ValidToField)
+                ?? _sourceValidity?.ValidToField;
+
+            return
+                (RootDateFields.Any(item => Same(item.Reference, from)) &&
+                 (to is null ||
+                  RootDateFields.Any(item => Same(item.Reference, to)))) ||
+                Error("Válassz érvényes kezdő és záró dátummezőt.");
+        }
+
+        var dateReference =
+            NullIfEmpty(filter.DateField) ?? _sourceValidity?.DateField;
+
+        return RootDateFields.Any(item =>
+                   Same(item.Reference, dateReference)) ||
+               Error("Válaszd ki a vizsgált dátummezőt.");
+    }
+
+    private async Task SaveAsync()
+    {
+        if (IsBusy || !ValidateDraft())
+            return;
+
+        _isSaving = true;
+
+        var previousTab = _activeTab;
+        var previousSection = _selectedDataSectionCode;
+        var employeeFilter = _employeeIdsText;
+        var companyFilter = _companyIdText;
+
+        try
+        {
+            if (IsEmployeeDocument)
+            {
+                _sectionsDocumentEditor!.NormalizeForSave();
+                _headerDocumentEditor!.NormalizeForSave();
+            }
+
+            _mainFilterEditor!.NormalizeForSave();
+
+            var payload = PreparePayload(_draft!);
+
+            using var request = new HttpRequestMessage(
+                _isNew ? HttpMethod.Post : HttpMethod.Put,
+                _isNew
+                    ? "api/reports"
+                    : $"api/reports/{Uri.EscapeDataString(payload.ReportCode)}")
+            {
+                Content = JsonContent.Create(
+                    payload,
+                    options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A riport mentése sikerült.",
+                fallbackErrorMessage: "A riport mentése sikertelen.");
+
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadReportsAsync(payload.ReportCode);
+
+                _employeeIdsText = employeeFilter;
+                _companyIdText = companyFilter;
+                _activeTab =
+                    previousTab == 3 && !IsEmployeeDocument
+                        ? 0
+                        : previousTab;
+
+                _selectedDataSectionCode =
+                    Same(previousSection, "__main") ||
+                    _draft?.EmployeeDocument?.AdditionalSections.Any(item =>
+                        Same(item.Code, previousSection)) == true
+                        ? previousSection
+                        : "__main";
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch
+        {
+            Feedback.ShowError("A riport mentése közben hiba történt.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private static ReportDefinition PreparePayload(
+        ReportDefinition source)
+    {
+        var payload = Clone(source);
+
+        payload.ReportCode = payload.ReportCode.Trim();
+        payload.Name = payload.Name.Trim();
+
+        NormalizeDateFilter(payload.DateFilter);
+
+        foreach (var relation in payload.Relations)
+            NormalizeDateFilter(relation.DateFilter);
+
+        foreach (var key in payload.AdditionalProperties.Keys
+                     .Where(item => Same(item, "filters"))
+                     .ToArray())
+        {
+            payload.AdditionalProperties.Remove(key);
+        }
+
+        foreach (var filter in payload.Filters)
+        {
+            filter.Field = filter.Field.Trim();
+            filter.Operator = filter.Operator.Trim().ToUpperInvariant();
+            filter.Parameter = NullIfEmpty(filter.Parameter);
+
+            if (filter.Operator is "IS_NULL" or "IS_NOT_NULL")
+            {
+                filter.Parameter = null;
+                filter.Constant = null;
+            }
+            else if (filter.Parameter is not null)
+            {
+                filter.Constant = null;
+            }
+        }
+
+        for (var index = 0; index < payload.Fields.Count; index++)
+        {
+            var item = payload.Fields[index];
+
+            item.DisplayName = item.DisplayName.Trim();
+            item.OutputName = item.OutputName.Trim();
+            item.Format = NullIfEmpty(item.Format);
+
+            if (Same(item.Value.Kind, "CONSTANT"))
+            {
+                item.Value.Reference = null;
+                item.Value.Constant =
+                    BuildConstant(source.Fields[index].Value);
+            }
+            else
+            {
+                item.Value.Reference =
+                    NullIfEmpty(item.Value.Reference);
+
+                item.Value.Constant = null;
+            }
+        }
+
+        if (Same(payload.LayoutMode, "EMPLOYEE_DOCUMENT"))
+            payload.Grouping.SplitFilesBy.Clear();
+
+        return payload;
+    }
+
+    private static void NormalizeDateFilter(ReportDateFilter filter)
+    {
+        filter.Mode =
+            (filter.Mode ?? "NONE").Trim().ToUpperInvariant();
+
+        filter.DateField = NullIfEmpty(filter.DateField);
+        filter.ValidFromField = NullIfEmpty(filter.ValidFromField);
+        filter.ValidToField = NullIfEmpty(filter.ValidToField);
+    }
+
+    private bool NeedsDateMode(string mode)
+    {
+        if (_draft is null)
+            return false;
+
+        if (Same(_draft.DateFilter.Mode, mode) ||
+            _draft.Relations.Any(item =>
+                Same(item.DateFilter.Mode, mode)))
+        {
+            return true;
+        }
+
+        if (!Same(_draft.DateFilter.Mode, "NONE"))
+            return false;
+
+        if (IsEmployeeDocument)
+        {
+            var modes = DocumentDateModes();
+
+            var preferred = modes.Contains("MONTH_RANGE")
+                ? "MONTH_RANGE"
+                : modes.Contains("DATE_RANGE")
+                    ? "DATE_RANGE"
+                    : modes.Contains("AS_OF_DATE")
+                        ? "AS_OF_DATE"
+                        : "NONE";
+
+            if (!Same(preferred, "NONE"))
+                return Same(preferred, mode);
+        }
+
+        var hasRelationDates = _draft.Relations.Any(item =>
+            !Same(item.DateFilter.Mode, "NONE"));
+
+        return !hasRelationDates &&
+               MainUsesDynamicFields &&
+               Same(mode, "AS_OF_DATE");
+    }
+
+    private HashSet<string> DocumentDateModes()
+    {
+        var modes = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        void AddMode(string? value)
+        {
+            var normalized = value?.Trim().ToUpperInvariant();
+
+            if (normalized?.StartsWith(
+                    "MONTH_RANGE",
+                    StringComparison.Ordinal) == true)
+            {
+                modes.Add("MONTH_RANGE");
+            }
+            else if (normalized?.StartsWith(
+                         "DATE_RANGE",
+                         StringComparison.Ordinal) == true)
+            {
+                modes.Add("DATE_RANGE");
+            }
+            else if (normalized == "AS_OF_DATE")
+            {
+                modes.Add("AS_OF_DATE");
+            }
+        }
+
+        foreach (var block in ActiveDocumentBlocks())
+        {
+            AddMode(block.DateFilter.Mode);
+
+            foreach (var relation in block.Relations)
+                AddMode(relation.DateFilter.Mode);
+
+            foreach (var parameter in block.Parameters)
+                AddMode(parameter.Mode);
+        }
+
+        return modes;
+    }
+
+    private IEnumerable<ReportDocumentDataBlockEditorDefinition>
+        ActiveDocumentBlocks()
+    {
+        var configuration = _draft?.EmployeeDocument;
+
+        if (!IsEmployeeDocument || configuration is null)
+            yield break;
+
+        if (configuration.Header.IsEnabled &&
+            configuration.Header.Fields.Count > 0)
+        {
+            yield return configuration.Header;
+        }
+
+        foreach (var section in configuration.AdditionalSections)
+        {
+            if (section.IsEnabled)
+                yield return section;
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (_draft is null || IsBusy || _isNew ||
+            IsDirty || !_catalogReady || !_draft.IsActive)
+        {
+            return;
+        }
+
+        if (!ValidateDraft())
+            return;
+
+        var export = new ReportExportRequest
+        {
+            Format = _exportFormat
+        };
+
+        if (IsEmployeeDocument &&
+            _exportFormat is not ("XLSX" or "PDF"))
+        {
+            Error("A dolgozónkénti dokumentum Excel vagy PDF lehet.");
+            return;
+        }
+
+        if (NeedsDateMode("MONTH_RANGE"))
+        {
+            if (!TryParseMonth(_periodFrom, out var from) ||
+                !TryParseMonth(_periodTo, out var to) ||
+                from > to)
+            {
+                Error("Adj meg érvényes kezdő és záró hónapot.");
+                return;
+            }
+
+            export.PeriodFrom = _periodFrom;
+            export.PeriodTo = _periodTo;
+        }
+
+        if (NeedsDateMode("AS_OF_DATE"))
+        {
+            if (!TryParseDate(_asOfDate, out var date))
+            {
+                Error("Adj meg érvényes érvényességi dátumot.");
+                return;
+            }
+
+            export.AsOfDate = date;
+        }
+
+        if (NeedsDateMode("DATE_RANGE"))
+        {
+            if (!TryParseDate(_dateFrom, out var from) ||
+                !TryParseDate(_dateTo, out var to) ||
+                from > to)
+            {
+                Error("Adj meg érvényes kezdő és záró dátumot.");
+                return;
+            }
+
+            export.DateFrom = from;
+            export.DateTo = to;
+        }
+
+        if (CanFilterEmployees)
+        {
+            if (!TryParseEmployeeIds(_employeeIdsText, out var ids))
+            {
+                Error("A dolgozóazonosítók pozitív egész számok legyenek.");
+                return;
+            }
+
+            export.EmployeeIds = ids;
+        }
+
+        if (CanFilterCompany &&
+            !string.IsNullOrWhiteSpace(_companyIdText))
+        {
+            if (!int.TryParse(_companyIdText, out var companyId) ||
+                companyId <= 0)
+            {
+                Error("A cégazonosítónak pozitív egész számnak kell lennie.");
+                return;
+            }
+
+            export.CompanyId = companyId;
+        }
+
+        _isExporting = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"api/reports/{Uri.EscapeDataString(_draft.ReportCode)}/export")
+            {
+                Content = JsonContent.Create(
+                    export,
+                    options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A riport exportálása sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var bytes =
+                await response.Content.ReadAsByteArrayAsync();
+
+            var fileName =
+                response.Content.Headers.ContentDisposition?.FileNameStar
+                ?? response.Content.Headers.ContentDisposition?.FileName
+                ?? $"{_draft.ReportCode}.{_exportFormat.ToLowerInvariant()}";
+
+            var mediaType =
+                response.Content.Headers.ContentType?.MediaType
+                ?? "application/octet-stream";
+
+            await using var module =
+                await JS.InvokeAsync<IJSObjectReference>(
+                    "import",
+                    "./js/download.js");
+
+            await module.InvokeVoidAsync(
+                "saveBytes",
+                fileName.Trim('"'),
+                mediaType,
+                bytes);
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (JSException)
+        {
+            Feedback.ShowError(
+                "A fájl elkészült, de a böngésző nem tudta elindítani a letöltést.");
+        }
+        catch
+        {
+            Feedback.ShowError(
+                "Az exportálás közben hiba történt.");
+        }
+        finally
+        {
+            _isExporting = false;
+        }
+    }
+
+    private Task DocumentChangedAsync()
+    {
+        if (_draft?.EmployeeDocument is not null &&
+            !Same(_selectedDataSectionCode, "__main") &&
+            !_draft.EmployeeDocument.AdditionalSections.Any(item =>
+                Same(item.Code, _selectedDataSectionCode)))
+        {
+            _selectedDataSectionCode = "__main";
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task DiscardChangesAsync()
+    {
+        if (_draft is null || IsBusy)
+            return;
+
+        var saved = _reports.FirstOrDefault(item =>
+            Same(item.ReportCode, _draft.ReportCode));
+
+        if (saved is not null)
+            await SetDraftAsync(saved, false);
+    }
+
+    private void OpenDeleteDialog()
+    {
+        if (!IsBusy && !_isNew && _draft is not null)
+            _showDeleteDialog = true;
+    }
+
+    private void CloseDeleteDialog()
+    {
+        if (!IsBusy)
+            _showDeleteDialog = false;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_draft is null || _isNew || IsBusy)
+            return;
+
+        _isSaving = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/reports/{Uri.EscapeDataString(_draft.ReportCode)}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A riport törölve.",
+                fallbackErrorMessage: "A riport törlése sikertelen.");
+
+            if (response.IsSuccessStatusCode)
+            {
+                _showDeleteDialog = false;
+                await LoadReportsAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch
+        {
+            Feedback.ShowError(
+                "A riport törlése közben hiba történt.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private static void InitializeConstantEditor(ReportValue value)
+    {
+        if (value.Constant is not { } constant)
+        {
+            value.ConstantType = "null";
+            value.ConstantText = "";
+            return;
+        }
+
+        value.ConstantType = constant.ValueKind switch
+        {
+            JsonValueKind.String => "text",
+            JsonValueKind.Number => "decimal",
+            JsonValueKind.True or JsonValueKind.False => "boolean",
+            JsonValueKind.Null or JsonValueKind.Undefined => "null",
+            _ => "json"
+        };
+
+        value.ConstantText = constant.ValueKind switch
+        {
+            JsonValueKind.String => constant.GetString() ?? "",
+            JsonValueKind.Null or JsonValueKind.Undefined => "",
+            _ => constant.GetRawText()
+        };
+    }
+
+    private static JsonElement BuildConstant(ReportValue value)
+    {
+        return value.ConstantType switch
+        {
+            "decimal" => JsonSerializer.SerializeToElement(
+                decimal.Parse(
+                    value.ConstantText,
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture)),
+            "boolean" => JsonSerializer.SerializeToElement(
+                bool.Parse(value.ConstantText)),
+            "null" => JsonSerializer.SerializeToElement<object?>(null),
+            "json" => ParseJson(value.ConstantText),
+            _ => JsonSerializer.SerializeToElement(value.ConstantText)
+        };
+    }
+
+    private static JsonElement ParseJson(string text)
+    {
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.Clone();
+    }
+
+    private string EditorSignature()
+    {
+        return JsonSerializer.Serialize(new
+        {
+            Definition = _draft,
+            FilterEditorState = _mainFilterEditorState,
+            Editors = _draft?.Fields.Select(item => new
+            {
+                item.Code,
+                item.Value.ConstantType,
+                item.Value.ConstantText
+            }).ToArray()
+        }, JsonOptions);
+    }
+
+    private bool Error(string message)
+    {
+        Feedback.ShowError(message);
+        return false;
+    }
+
+    private static bool TryParseEmployeeIds(
+        string text,
+        out List<int>? ids)
+    {
+        ids = null;
+
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        var values = new HashSet<int>();
+
+        foreach (var token in text.Split(
+                     [',', ';', ' ', '\t', '\r', '\n'],
+                     StringSplitOptions.RemoveEmptyEntries |
+                     StringSplitOptions.TrimEntries))
+        {
+            if (!int.TryParse(token, out var id) || id <= 0)
+                return false;
+
+            values.Add(id);
+        }
+
+        if (values.Count == 0)
+            return false;
+
+        ids = values.OrderBy(item => item).ToList();
+        return true;
+    }
+
+    private static bool TryParseMonth(
+        string text,
+        out DateOnly value)
+    {
+        value = default;
+
+        return text.Length == 7 &&
+               DateOnly.TryParseExact(
+                   $"{text}-01",
+                   "yyyy-MM-dd",
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.None,
+                   out value);
+    }
+
+    private static bool TryParseDate(
+        string text,
+        out DateOnly value)
+    {
+        return DateOnly.TryParseExact(
+            text,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out value);
+    }
+
+    private static ReportDefinition Clone(
+        ReportDefinition report)
+    {
+        return JsonSerializer.Deserialize<ReportDefinition>(
+            JsonSerializer.Serialize(report, JsonOptions),
+            JsonOptions) ?? new();
+    }
+
+    private static string EventText(ChangeEventArgs args) =>
+        args.Value?.ToString() ?? "";
+
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool Same(string? first, string? second) =>
+        string.Equals(
+            first,
+            second,
+            StringComparison.OrdinalIgnoreCase);
+
+    private void BackToApps() =>
+        Navigation.NavigateTo("/apps");
+
+    public sealed class ReportDefinition
+    {
+        public string ReportCode { get; set; } = "";
+        public string Name { get; set; } = "";
+        public int Version { get; set; } = 1;
+        public bool IsActive { get; set; } = true;
+        public string LayoutMode { get; set; } = "TABLE";
+        public string DataSource { get; set; } = "PAYROLL_RESULT";
+        public ReportDateFilter DateFilter { get; set; } = new();
+        public List<ReportRelation> Relations { get; set; } = [];
+        public string? XmlRootElementName { get; set; }
+        public string? XmlRecordElementName { get; set; }
+        public string? FileNamePattern { get; set; }
+        public List<ReportField> Fields { get; set; } = [];
+        public ReportGrouping Grouping { get; set; } = new();
+        public List<ReportDocumentFilterEditorDefinition> Filters { get; set; } = [];
+        public ReportEmployeeDocumentEditorDefinition? EmployeeDocument { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> AdditionalProperties { get; set; } = new();
+    }
+
+    public sealed class ReportDateFilter
+    {
+        public string Mode { get; set; } = "MONTH_RANGE";
+        public string? DateField { get; set; }
+        public string? ValidFromField { get; set; }
+        public string? ValidToField { get; set; }
+    }
+
+    public sealed class ReportRelation
+    {
+        public string RelationCode { get; set; } = "";
+        public string JoinType { get; set; } = "LEFT";
+        public ReportDateFilter DateFilter { get; set; } =
+            new() { Mode = "NONE" };
+    }
+
+    public sealed class ReportField
+    {
+        public string Code { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string OutputName { get; set; } = "";
+        public ReportValue Value { get; set; } = new();
+        public string Aggregation { get; set; } = "NONE";
+        public string? Format { get; set; }
+
+        [JsonIgnore]
+        public string ReferenceSearch { get; set; } = "";
+    }
+
+    public sealed class ReportValue
+    {
+        public string Kind { get; set; } = "REFERENCE";
+        public string? Reference { get; set; }
+        public JsonElement? Constant { get; set; }
+
+        [JsonIgnore]
+        public string ConstantType { get; set; } = "text";
+
+        [JsonIgnore]
+        public string ConstantText { get; set; } = "";
+    }
+
+    public sealed class ReportGrouping
+    {
+        public string RowMode { get; set; } = "DETAIL";
+        public List<string> GroupBy { get; set; } = [];
+        public List<string> SplitFilesBy { get; set; } = [];
+        public List<string> SortBy { get; set; } = [];
+    }
+
+    public sealed class ReportReference
+    {
+        public string Reference { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string? DataType { get; set; }
+        public string? Category { get; set; }
+        public bool IsNullable { get; set; }
+        public bool CanFilter { get; set; } = true;
+        public bool CanGroup { get; set; } = true;
+        public bool CanSort { get; set; } = true;
+        public string? RequiredRelationCode { get; set; }
+        public bool IsDynamic { get; set; }
+    }
+
+    public sealed class ReportSource
+    {
+        public string Code { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public bool SupportsEmployeeDocuments { get; set; }
+    }
+
+    public sealed class ReportValidity
+    {
+        public string? DateField { get; set; }
+        public string? ValidFromField { get; set; }
+        public string? ValidToField { get; set; }
+    }
+
+    public sealed class ReportDataCatalogResponse
+    {
+        public string SourceCode { get; set; } = "";
+        public string? EmployeeIdField { get; set; }
+        public string? CompanyIdField { get; set; }
+        public bool SupportsEmployeeDocuments { get; set; }
+        public List<ReportReference> References { get; set; } = [];
+        public List<ReportSource> Sources { get; set; } = [];
+        public ReportValidity? Validity { get; set; }
+    }
+
+    public sealed class ReportExportRequest
+    {
+        public string Format { get; set; } = "";
+        public string PeriodFrom { get; set; } = "";
+        public string PeriodTo { get; set; } = "";
+        public DateOnly? AsOfDate { get; set; }
+        public DateOnly? DateFrom { get; set; }
+        public DateOnly? DateTo { get; set; }
+        public List<int>? EmployeeIds { get; set; }
+        public int? CompanyId { get; set; }
+        public Dictionary<string, JsonElement>? ParameterValues { get; set; }
+    }
+}

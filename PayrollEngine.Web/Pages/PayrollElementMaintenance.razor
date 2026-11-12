@@ -1,0 +1,336 @@
+﻿@using System.Text.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Bérelemek karbantartása</PageTitle>
+
+<main class="payroll-element-page">
+    <header class="payroll-element-header">
+        <button type="button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <h1>Bérelemek karbantartása</h1>
+    </header>
+
+    <section class="payroll-element-card">
+        <h2>Rögzített bérelemek</h2>
+
+        <div class="payroll-element-search">
+            <input @bind="_search"
+                   @bind:event="oninput"
+                   placeholder="Keresés kód vagy megnevezés alapján" />
+
+            <select @bind="_activeFilter">
+                <option value="">Minden állapot</option>
+                <option value="true">Aktív</option>
+                <option value="false">Inaktív</option>
+            </select>
+
+            <button type="button"
+                    @onclick="LoadAsync"
+                    disabled="@_isLoading">
+                @(_isLoading ? "Betöltés…" : "Keresés")
+            </button>
+        </div>
+
+        @if (_isLoading && _items.Count == 0)
+        {
+            <p>A bérelemek betöltése…</p>
+        }
+        else if (_items.Count == 0)
+        {
+            <p>Nem található bérelem.</p>
+        }
+        else
+        {
+            <div class="payroll-element-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kód</th>
+                            <th>Megnevezés</th>
+                            <th>Állapot</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _items)
+                        {
+                            <tr @key="item.PayrollElementId">
+                                <td>@item.Code</td>
+                                <td>@item.Name</td>
+                                <td>@(item.IsActive ? "Aktív" : "Inaktív")</td>
+                                <td>
+                                    <button type="button"
+                                            @onclick="async () => await EditAsync(item.PayrollElementId)"
+                                            disabled="@_isLoading">
+                                        Szerkesztés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="payroll-element-card">
+        <h2>@(_payrollElementId.HasValue ? "Bérelem módosítása" : "Új bérelem")</h2>
+
+        <div class="payroll-element-form">
+            <label>
+                Kód *
+                <input @bind="_code" maxlength="50" />
+            </label>
+
+            <label>
+                Megnevezés *
+                <input @bind="_name" maxlength="100" />
+            </label>
+
+            @if (_payrollElementId.HasValue)
+            {
+                <label class="payroll-element-checkbox">
+                    <input type="checkbox" @bind="_isActive" />
+                    Aktív
+                </label>
+            }
+        </div>
+
+        <div class="payroll-element-actions">
+            @if (_payrollElementId.HasValue)
+            {
+                <button type="button"
+                        @onclick="NewItem"
+                        disabled="@_isSaving">
+                    Új bérelem
+                </button>
+            }
+
+            @if (_payrollElementId.HasValue)
+            {
+                <PayrollElementFieldValueEditor PayrollElementId="@_payrollElementId.Value" />
+            }
+
+            <button type="button"
+                    class="payroll-element-save"
+                    @onclick="SaveAsync"
+                    disabled="@_isSaving">
+                @(_isSaving
+                    ? "Mentés…"
+                    : _payrollElementId.HasValue
+                        ? "Módosítások mentése"
+                        : "Bérelem létrehozása")
+            </button>
+        </div>
+    </section>
+</main>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private string _search = string.Empty;
+    private string _activeFilter = string.Empty;
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private bool _isActive = true;
+    private int? _payrollElementId;
+
+    private bool _isLoading;
+    private bool _isSaving;
+
+    private List<PayrollElementItem> _items = [];
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (_isLoading)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            var query = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(_search))
+                query.Add($"search={Uri.EscapeDataString(_search.Trim())}");
+
+            if (!string.IsNullOrWhiteSpace(_activeFilter))
+                query.Add($"isActive={_activeFilter}");
+
+            var url = query.Count == 0
+                ? "api/payroll-elements"
+                : $"api/payroll-elements?{string.Join("&", query)}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A bérelemek betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _items = [];
+                return;
+            }
+
+            _items =
+                await response.Content.ReadFromJsonAsync<List<PayrollElementItem>>(JsonOptions) ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A bérelemek betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task EditAsync(int id)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/payroll-elements/{id}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A bérelem betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var item =
+                await response.Content.ReadFromJsonAsync<PayrollElementItem>(JsonOptions);
+
+            if (item is null)
+            {
+                Feedback.ShowError("A bérelem adatai nem olvashatók.");
+                return;
+            }
+
+            _payrollElementId = item.PayrollElementId;
+            _code = item.Code;
+            _name = item.Name;
+            _isActive = item.IsActive;
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A bérelem betöltése közben hiba történt.");
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_isSaving)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_code) ||
+            string.IsNullOrWhiteSpace(_name))
+        {
+            Feedback.ShowError("A bérelem kódja és megnevezése kötelező.");
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            HttpRequestMessage request;
+
+            if (_payrollElementId.HasValue)
+            {
+                var body = new UpdateRequest(
+                    _code.Trim(),
+                    _name.Trim(),
+                    _isActive);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Put,
+                    $"api/payroll-elements/{_payrollElementId}")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+            else
+            {
+                var body = new CreateRequest(
+                    _code.Trim(),
+                    _name.Trim());
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    "api/payroll-elements")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+
+            using (request)
+            using (var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: _payrollElementId.HasValue
+                    ? "A bérelem adatai módosultak."
+                    : "A bérelem létrejött.",
+                fallbackErrorMessage: "A bérelem mentése sikertelen."))
+            {
+                if (!response.IsSuccessStatusCode)
+                    return;
+            }
+
+            NewItem();
+            await LoadAsync();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A bérelem mentése közben hiba történt.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void NewItem()
+    {
+        _payrollElementId = null;
+        _code = string.Empty;
+        _name = string.Empty;
+        _isActive = true;
+    }
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private sealed record PayrollElementItem(
+        int PayrollElementId,
+        string Code,
+        string Name,
+        bool IsActive);
+
+    private sealed record CreateRequest(
+        string Code,
+        string Name);
+
+    private sealed record UpdateRequest(
+        string Code,
+        string Name,
+        bool IsActive);
+}

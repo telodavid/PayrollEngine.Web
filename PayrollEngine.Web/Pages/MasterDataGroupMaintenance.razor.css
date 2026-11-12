@@ -1,0 +1,114 @@
+﻿.masterdata-group-page {
+    width: 100%;
+    color: #101828;
+}
+
+.masterdata-group-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+    .masterdata-group-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+    }
+
+.masterdata-group-card {
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: #fff;
+}
+
+    .masterdata-group-card h2 {
+        margin: 0 0 1rem;
+        color: #344054;
+        font-size: 1.15rem;
+    }
+
+.masterdata-group-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+    .masterdata-group-form label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        color: #344054;
+        font-weight: 600;
+    }
+
+    .masterdata-group-form input {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 42px;
+        padding: 0.6rem 0.7rem;
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        font: inherit;
+    }
+
+.masterdata-group-table-wrap {
+    overflow-x: auto;
+}
+
+    .masterdata-group-table-wrap table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .masterdata-group-table-wrap th,
+    .masterdata-group-table-wrap td {
+        padding: 0.75rem;
+        border-bottom: 1px solid #eaecf0;
+        text-align: left;
+    }
+
+.masterdata-group-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.65rem;
+    margin-top: 1.25rem;
+}
+
+.masterdata-group-page button {
+    min-height: 40px;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #101828;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.masterdata-group-actions .masterdata-group-save {
+    border-color: #175cd3;
+    background: #175cd3;
+    color: #fff;
+}
+
+@media (max-width: 700px) {
+    .masterdata-group-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+        .masterdata-group-header h1 {
+            font-size: 1.45rem;
+        }
+
+    .masterdata-group-form {
+        grid-template-columns: 1fr;
+    }
+
+    .masterdata-group-actions {
+        flex-direction: column;
+    }
+}

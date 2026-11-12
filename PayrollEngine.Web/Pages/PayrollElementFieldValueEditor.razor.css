@@ -1,0 +1,293 @@
+﻿.payroll-field-open-button,
+.payroll-field-close-button,
+.payroll-field-save-button,
+.payroll-field-history-button,
+.payroll-field-group-button {
+    font: inherit;
+}
+
+.payroll-field-open-button,
+.payroll-field-save-button {
+    padding: 9px 15px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #fff;
+    color: #172554;
+    cursor: pointer;
+}
+
+.payroll-field-history-button {
+    justify-self: start;
+    padding: 9px 15px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #fff;
+    color: #172554;
+    cursor: pointer;
+}
+
+.payroll-field-save-button {
+    justify-self: end;
+    background: #2f5bea;
+    border-color: #2f5bea;
+    color: #fff;
+}
+
+.payroll-field-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgb(15 23 42 / 55%);
+}
+
+.payroll-field-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(1180px, 96vw);
+    max-height: min(90vh, 900px);
+    overflow: hidden;
+    border: 1px solid #d5dbe7;
+    border-radius: 14px;
+    background: #fff;
+    color: #172033;
+    box-shadow: 0 24px 70px rgb(15 23 42 / 25%);
+}
+
+.payroll-field-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 22px 26px;
+    border-bottom: 1px solid #e4e8f0;
+}
+
+    .payroll-field-dialog-header h2,
+    .payroll-field-dialog-header p,
+    .payroll-field-groups-panel h3,
+    .payroll-field-group-heading h3,
+    .payroll-field-item-heading h4 {
+        margin: 0;
+    }
+
+    .payroll-field-dialog-header p {
+        margin-top: 6px;
+        color: #64748b;
+    }
+
+.payroll-field-close-button {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 24px;
+    cursor: pointer;
+}
+
+.payroll-field-layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    min-height: 360px;
+    overflow: hidden;
+}
+
+.payroll-field-content {
+    min-width: 0;
+    padding: 22px 26px;
+    overflow: auto;
+}
+
+.payroll-field-groups-panel {
+    padding: 20px 16px;
+    overflow: auto;
+    border-right: 1px solid #e4e8f0;
+    background: #f8fafc;
+}
+
+    .payroll-field-groups-panel h3 {
+        margin: 0 0 14px;
+        font-size: 1rem;
+    }
+
+    .payroll-field-groups-panel nav {
+        display: grid;
+        gap: 8px;
+    }
+
+.payroll-field-group-button {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #d5dbe7;
+    border-radius: 8px;
+    background: #fff;
+    color: #172033;
+    text-align: left;
+    cursor: pointer;
+}
+
+    .payroll-field-group-button.active {
+        border-color: #8da5ff;
+        background: #eef2ff;
+    }
+
+    .payroll-field-group-button small,
+    .payroll-field-group-heading span,
+    .payroll-field-item-heading small,
+    .payroll-field-permission {
+        color: #64748b;
+    }
+
+.payroll-field-group-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #e4e8f0;
+}
+
+.payroll-field-list {
+    display: grid;
+    gap: 14px;
+    padding-top: 16px;
+}
+
+.payroll-field-item {
+    display: grid;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid #dfe4ec;
+    border-radius: 9px;
+}
+
+.payroll-field-item-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+    .payroll-field-item-heading > div {
+        display: grid;
+        gap: 4px;
+    }
+
+.payroll-field-required {
+    color: #9f1239;
+    font-size: .82rem;
+}
+
+.payroll-field-item label {
+    display: grid;
+    gap: 6px;
+    font-weight: 600;
+}
+
+.payroll-field-item input,
+.payroll-field-item select {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #fff;
+    font: inherit;
+}
+
+.payroll-field-validity {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.payroll-field-item-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.payroll-field-readonly {
+    margin: 0;
+}
+
+.payroll-field-message {
+    margin: 0;
+    padding: 28px;
+    color: #64748b;
+    text-align: center;
+}
+
+.payroll-field-history-backdrop {
+    position: fixed;
+    z-index: 1100;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgb(15 23 42 / 38%);
+}
+
+.payroll-field-history-dialog {
+    width: min(760px, 94vw);
+    max-height: 80vh;
+    overflow: auto;
+    border: 1px solid #d5dbe7;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 20px 60px rgb(15 23 42 / 25%);
+}
+
+.payroll-field-history-table-wrap {
+    max-height: 55vh;
+    padding: 18px 22px 22px;
+    overflow: auto;
+}
+
+.payroll-field-history-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .payroll-field-history-table th,
+    .payroll-field-history-table td {
+        padding: 11px 12px;
+        border-bottom: 1px solid #e4e8f0;
+        text-align: left;
+    }
+
+@media (max-width: 760px) {
+    .payroll-field-backdrop {
+        padding: 10px;
+    }
+
+    .payroll-field-layout {
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+    }
+
+    .payroll-field-groups-panel {
+        border-right: 0;
+        border-bottom: 1px solid #e4e8f0;
+    }
+
+        .payroll-field-groups-panel nav {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+    .payroll-field-content {
+        overflow: visible;
+        padding: 16px;
+    }
+
+    .payroll-field-validity {
+        grid-template-columns: 1fr;
+    }
+}

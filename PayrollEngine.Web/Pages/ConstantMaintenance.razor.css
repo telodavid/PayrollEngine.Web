@@ -1,0 +1,222 @@
+﻿.constant-page {
+    width: 100%;
+    padding: 24px 32px 32px;
+    box-sizing: border-box;
+    color: #101828;
+}
+
+.constant-header,
+.constant-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.constant-header {
+    margin-bottom: 24px;
+}
+
+    .constant-header h1 {
+        margin: 0;
+        font-size: 28px;
+    }
+
+.constant-toolbar {
+    margin-bottom: 18px;
+}
+
+    .constant-toolbar p {
+        margin: 0;
+        color: #667085;
+    }
+
+.constant-primary,
+.constant-secondary,
+.constant-delete {
+    min-height: 40px;
+    padding: 9px 15px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #101828;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.constant-primary {
+    border-color: #175cd3;
+    background: #175cd3;
+    color: #fff;
+}
+
+    .constant-primary:hover {
+        background: #1849a9;
+    }
+
+.constant-secondary:hover {
+    border-color: #2970ff;
+    background: #f5f8ff;
+}
+
+.constant-delete {
+    border-color: #fecdca;
+    color: #b42318;
+}
+
+    .constant-delete:hover {
+        background: #fef3f2;
+    }
+
+.constant-empty {
+    padding: 32px 18px;
+    border: 1px dashed #d0d5dd;
+    border-radius: 8px;
+    color: #667085;
+    text-align: center;
+}
+
+.constant-table-wrap {
+    overflow-x: auto;
+}
+
+.constant-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .constant-table th,
+    .constant-table td {
+        padding: 13px 10px;
+        border-bottom: 1px solid #eaecf0;
+        text-align: left;
+    }
+
+    .constant-table th {
+        color: #475467;
+        font-size: 13px;
+    }
+
+.constant-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.constant-message {
+    margin: 12px 0;
+    padding: 11px 13px;
+    border-radius: 8px;
+}
+
+    .constant-message.error {
+        background: #fef3f2;
+        color: #b42318;
+    }
+
+    .constant-message.success {
+        background: #ecfdf3;
+        color: #027a48;
+    }
+
+.constant-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgb(16 24 40 / 45%);
+}
+
+.constant-dialog {
+    width: min(620px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow: auto;
+    padding: 24px;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 20px 50px rgb(16 24 40 / 20%);
+}
+
+    .constant-dialog header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+    }
+
+    .constant-dialog h2 {
+        margin: 0;
+        font-size: 22px;
+    }
+
+.constant-close {
+    border: 0;
+    background: none;
+    color: #667085;
+    font-size: 28px;
+    cursor: pointer;
+}
+
+.constant-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+    .constant-form label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: #344054;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .constant-form input {
+        min-height: 40px;
+        padding: 8px 10px;
+        border: 1px solid #d0d5dd;
+        border-radius: 7px;
+        font: inherit;
+        font-weight: 400;
+    }
+
+.constant-note {
+    margin: 16px 0 0;
+    color: #667085;
+    font-size: 13px;
+}
+
+.constant-dialog footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 22px;
+}
+
+.constant-confirm {
+    width: min(480px, 100%);
+}
+
+@media (max-width: 760px) {
+    .constant-page {
+        padding: 18px;
+    }
+
+    .constant-header,
+    .constant-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .constant-form {
+        grid-template-columns: 1fr;
+    }
+
+    .constant-actions {
+        justify-content: flex-start;
+    }
+}

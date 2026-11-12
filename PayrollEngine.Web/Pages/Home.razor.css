@@ -1,0 +1,107 @@
+﻿.home-page {
+    display: grid;
+    min-height: calc(100vh - 2rem);
+    place-items: center;
+    box-sizing: border-box;
+    padding: 2rem;
+    color: #101828;
+}
+
+.home-card {
+    width: min(100%, 680px);
+    box-sizing: border-box;
+    padding: clamp(2rem, 6vw, 4rem);
+    border: 1px solid #d0d5dd;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgb(16 24 40 / 7%);
+    text-align: center;
+}
+
+.home-mark {
+    display: grid;
+    width: 58px;
+    height: 58px;
+    margin: 0 auto 1.5rem;
+    place-items: center;
+    border-radius: 16px;
+    background: #eef3ff;
+    color: #3157d5;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+}
+
+.home-eyebrow {
+    margin: 0 0 .5rem;
+    color: #475467;
+    font-size: .9rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.home-card h1 {
+    margin: 0;
+    color: #101828;
+    font-size: clamp(1.8rem, 4vw, 2.5rem);
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.home-description {
+    max-width: 500px;
+    margin: 1rem auto 1.75rem;
+    color: #667085;
+    font-size: 1rem;
+    line-height: 1.65;
+}
+
+.home-login-button {
+    display: inline-flex;
+    min-height: 46px;
+    align-items: center;
+    justify-content: center;
+    gap: .75rem;
+    padding: .7rem 1.2rem;
+    border: 1px solid #3157d5;
+    border-radius: 8px;
+    background: #3157d5;
+    color: #fff;
+    font: inherit;
+    font-size: .95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color .15s ease, transform .15s ease;
+}
+
+    .home-login-button:hover {
+        border-color: #2446b6;
+        background: #2446b6;
+        transform: translateY(-1px);
+    }
+
+    .home-login-button:focus-visible {
+        outline: 3px solid rgb(49 87 213 / 25%);
+        outline-offset: 3px;
+    }
+
+    .home-login-button span {
+        font-size: 1.2rem;
+        line-height: 1;
+    }
+
+@media (max-width: 520px) {
+    .home-page {
+        min-height: calc(100vh - 1rem);
+        padding: 1rem;
+    }
+
+    .home-card {
+        padding: 2rem 1.25rem;
+    }
+
+    .home-login-button {
+        width: 100%;
+    }
+}

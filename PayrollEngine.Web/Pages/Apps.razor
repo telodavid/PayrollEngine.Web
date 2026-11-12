@@ -1,0 +1,349 @@
+﻿@page "/apps"
+@using PayrollEngine.Web.Services
+@inject LoginSession Session
+@inject NavigationManager Navigation
+
+@if (Session.CurrentUser is not null)
+{
+    <header class="page-header">
+        <div>
+            <h1>Alkalmazások</h1>
+            <p>Bejelentkezve: @Session.CurrentUser.UserName</p>
+        </div>
+
+        <button class="logout-button" @onclick="Logout">
+            Kijelentkezés
+        </button>
+    </header>
+
+    <main class="app-list">
+        @foreach (var app in Session.CurrentUser.Apps)
+        {
+            <button class="app-button"
+                    @onclick="() => OpenApp(app.Code)">
+                @app.AppName
+            </button>
+        }
+    </main>
+
+    @if (_showUserMaintenanceMenu)
+    {
+        <div class="app-menu-backdrop" @onclick="CloseUserMaintenanceMenu">
+            <section class="app-menu-dialog"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="user-maintenance-menu-title"
+                     @onclick:stopPropagation="true">
+                <header class="app-menu-header">
+                    <div>
+                        <h2 id="user-maintenance-menu-title">User karbantartó alkalmazás</h2>
+                        <p>Válaszd ki a karbantartani kívánt területet.</p>
+                    </div>
+                    <button type="button" class="app-menu-close"
+                            aria-label="Ablak bezárása"
+                            @onclick="CloseUserMaintenanceMenu">
+                        ×
+                    </button>
+                </header>
+                <div class="app-menu-options">
+                    <button type="button" class="app-menu-option"
+                            @onclick='() => OpenUserMaintenanceArea("users")'>
+                        <span class="app-menu-option-title">User karbantartás</span>
+                        <span class="app-menu-option-description">Felhasználók létrehozása, módosítása és jelszó beállítása</span>
+                    </button>
+                    <button type="button" class="app-menu-option"
+                            @onclick='() => OpenUserMaintenanceArea("roles")'>
+                        <span class="app-menu-option-title">Szerep karbantartás</span>
+                        <span class="app-menu-option-description">Szerepkörök létrehozása és szerkesztése</span>
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+
+    @if (_showMasterDataMenu)
+    {
+        <div class="app-menu-backdrop" @onclick="CloseMasterDataMenu">
+            <section class="app-menu-dialog"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="masterdata-menu-title"
+                     @onclick:stopPropagation="true">
+                <header class="app-menu-header">
+                    <div>
+                        <h2 id="masterdata-menu-title">
+                            Törzsadat-karbantartó alkalmazás
+                        </h2>
+                        <p>Válaszd ki a megnyitni kívánt területet.</p>
+                    </div>
+
+                    <button type="button"
+                            class="app-menu-close"
+                            aria-label="Ablak bezárása"
+                            @onclick="CloseMasterDataMenu">
+                        ×
+                    </button>
+                </header>
+
+                <div class="app-menu-options">
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataArea("employee")'>
+                        <span class="app-menu-option-title">Munkavállaló törzsadat-karbantartás</span>
+                    </button>
+
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataArea("employee-entry")'>
+                        <span class="app-menu-option-title">Munkavállaló beléptetése</span>
+                    </button>
+
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataArea("employee-exit")'>
+                        <span class="app-menu-option-title">Munkavállaló kiléptetése</span>
+                    </button>
+
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataArea("companies")'>
+                        <span class="app-menu-option-title">Cégadatok karbantartás</span>
+                    </button>
+
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataArea("constants")'>
+                        <span class="app-menu-option-title">Konstansok karbantartása</span>
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+    @if (_showWorkScheduleMenu)
+    {
+        <div class="app-menu-backdrop" @onclick="CloseWorkScheduleMenu">
+            <section class="app-menu-dialog"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="work-schedule-menu-title"
+                     @onclick:stopPropagation="true">
+                <header class="app-menu-header">
+                    <div>
+                        <h2 id="work-schedule-menu-title">Munkarend-konfiguráló alkalmazás</h2>
+                        <p>Válaszd ki a karbantartani kívánt adatokat.</p>
+                    </div>
+
+                    <button type="button"
+                            class="app-menu-close"
+                            aria-label="Ablak bezárása"
+                            @onclick="CloseWorkScheduleMenu">
+                        ×
+                    </button>
+                </header>
+
+                <div class="app-menu-options">
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenWorkScheduleArea("day-types")'>
+                        <span class="app-menu-option-title">Naptípusok</span>
+                        <span class="app-menu-option-description">
+                            Munkanapok, pihenőnapok és munkaidők karbantartása
+                        </span>
+                    </button>
+
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenWorkScheduleArea("schedules")'>
+                        <span class="app-menu-option-title">Munkarendek</span>
+                        <span class="app-menu-option-description">
+                            Ciklusok és a ciklusnapok naptípusainak beállítása
+                        </span>
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+    @if (_showMasterDataTypeMenu)
+    {
+        <div class="app-menu-backdrop" @onclick="CloseMasterDataTypeMenu">
+            <section class="app-menu-dialog"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="masterdata-type-menu-title"
+                     @onclick:stopPropagation="true">
+                <header class="app-menu-header">
+                    <div>
+                        <h2 id="masterdata-type-menu-title">
+                            Törzsadattípus-karbantartó alkalmazás
+                        </h2>
+                        <p>Válaszd ki, mely adatokat szeretnéd karbantartani.</p>
+                    </div>
+
+                    <button type="button"
+                            class="app-menu-close"
+                            aria-label="Ablak bezárása"
+                            @onclick="CloseMasterDataTypeMenu">
+                        ×
+                    </button>
+                </header>
+
+                <div class="app-menu-options">
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataTypeArea("groups")'>
+                        <span class="app-menu-option-title">Törzsadatcsoportok</span>
+                        <span class="app-menu-option-description">
+                            Törzsadatcsoportok létrehozása és szerkesztése
+                        </span>
+                    </button>
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataTypeArea("fields")'>
+                        <span class="app-menu-option-title">Törzsadat-típusok</span>
+                        <span class="app-menu-option-description">
+                            Törzsadatcsoportok mezőinek és adattípusainak kezelése
+                        </span>
+                    </button>
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataTypeArea("payroll-element-groups")'>
+                        <span class="app-menu-option-title">Bérelem-tulajdonság csoportok</span>
+                        <span class="app-menu-option-description">
+                            Bérelem-tulajdonság csoportok létrehozása és szerkesztése
+                        </span>
+                    </button>
+                    <button type="button"
+                            class="app-menu-option"
+                            @onclick='() => OpenMasterDataTypeArea("payroll-elements")'>
+                        <span class="app-menu-option-title">Bérelem-tulajdonságok</span>
+                        <span class="app-menu-option-description">
+                            Bérelemekhez tartozó dinamikus tulajdonságok kezelése
+                        </span>
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+}
+
+@code {
+    private bool _showMasterDataMenu;
+
+    private bool _showUserMaintenanceMenu;
+
+    private bool _showWorkScheduleMenu;
+
+    private bool _showMasterDataTypeMenu;
+
+    protected override void OnInitialized()
+    {
+        if (Session.CurrentUser is null)
+        {
+            Navigation.NavigateTo("/login", replace: true);
+        }
+    }
+
+    private void CloseMasterDataTypeMenu()
+    {
+        _showMasterDataTypeMenu = false;
+    }
+
+    private void OpenMasterDataTypeArea(string area)
+    {
+        _showMasterDataTypeMenu = false;
+        Navigation.NavigateTo($"/masterdata-types/{Uri.EscapeDataString(area)}");
+    }
+
+    private void OpenApp(string appCode)
+    {
+        if (string.Equals(appCode, "USER_MAINTENANCE", StringComparison.OrdinalIgnoreCase))
+        {
+            _showUserMaintenanceMenu = true;
+            return;
+        }
+
+        if (string.Equals(
+                appCode,
+                "MASTERDATA_MAINTENANCE",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            _showMasterDataMenu = true;
+            return;
+        }
+        else if (string.Equals(
+        appCode,
+        "WORKSCHEDULE_CONFIG",
+        StringComparison.OrdinalIgnoreCase))
+        {
+            _showWorkScheduleMenu = true;
+            return;
+        }
+        if (string.Equals(
+        appCode,
+        "MASTERDATA_TYPE_MAINTENANCE",
+        StringComparison.OrdinalIgnoreCase))
+        {
+            _showMasterDataTypeMenu = true;
+            return;
+        }
+
+        if (string.Equals(
+                appCode,
+                "REPORT_BUILDER",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo("/reports");
+            return;
+        }
+
+        Navigation.NavigateTo($"/apps/{Uri.EscapeDataString(appCode)}");
+    }
+
+    private void CloseUserMaintenanceMenu()
+    {
+        _showUserMaintenanceMenu = false;
+    }
+
+    private void OpenUserMaintenanceArea(string area)
+    {
+        _showUserMaintenanceMenu = false;
+        Navigation.NavigateTo(area == "roles"
+            ? "/user-maintenance/roles"
+            : "/apps/USER_MAINTENANCE");
+    }
+
+    private void CloseMasterDataMenu()
+    {
+        _showMasterDataMenu = false;
+    }
+
+    private void OpenMasterDataArea(string area)
+    {
+        _showMasterDataMenu = false;
+
+        if (area == "employee")
+        {
+            Navigation.NavigateTo("/apps/MASTERDATA_MAINTENANCE");
+            return;
+        }
+
+        Navigation.NavigateTo($"/masterdata/{Uri.EscapeDataString(area)}");
+    }
+
+    private void CloseWorkScheduleMenu()
+    {
+        _showWorkScheduleMenu = false;
+    }
+
+    private void OpenWorkScheduleArea(string area)
+    {
+        _showWorkScheduleMenu = false;
+        Navigation.NavigateTo($"/workschedule/{Uri.EscapeDataString(area)}");
+    }
+
+    private void Logout()
+    {
+        Session.Clear();
+        Navigation.NavigateTo("/login", replace: true);
+    }
+}

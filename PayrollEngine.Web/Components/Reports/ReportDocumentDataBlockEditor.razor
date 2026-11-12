@@ -1,0 +1,1027 @@
+﻿@namespace PayrollEngine.Web.Components.Reports
+@using System.Globalization
+@using System.Net.Http
+@using System.Net.Http.Json
+@using System.Text.Json
+@using PayrollEngine.Web.Models
+@using PayrollEngine.Web.Services
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+
+<section class="report-section">
+    <h3>@Heading</h3>
+
+    @if (_loading)
+    {
+        <p class="report-muted">Adatmezők betöltése…</p>
+    }
+
+    @if (!_ready && !_loading)
+    {
+        <div class="report-catalog-error">
+            <p>Az adatrész katalógusa nincs betöltve.</p>
+            <button type="button"
+                    class="report-secondary"
+                    @onclick="ReloadAsync"
+                    disabled="@Disabled">
+                Újrapróbálás
+            </button>
+        </div>
+    }
+
+    <fieldset class="report-editor-fieldset"
+              disabled="@IsBusy">
+        <div class="report-two-column">
+            <label>
+                Adatforrás
+                <select value="@Block.DataSource"
+                        @onchange="ChangeSourceAsync">
+                    @if (!_sources.Any(item => Same(item.Code, Block.DataSource)))
+                    {
+                        <option value="@Block.DataSource">
+                            @Block.DataSource
+                        </option>
+                    }
+
+                    @foreach (var source in _sources)
+                    {
+                        <option value="@source.Code">
+                            @source.DisplayName
+                        </option>
+                    }
+                </select>
+            </label>
+        </div>
+
+        <p class="report-info">
+            Az adatforrás módosítása törli ennek az adatrésznek
+            a korábban kiválasztott mezőit és szűrőit.
+        </p>
+
+        <p class="report-info">
+            @(IsHeader
+                ? "A fejléc a fő riport időszakának utolsó napján érvényes adatokat használja."
+                : "Az adatrész automatikusan a fő riportban megadott időszak adatait használja.")
+        </p>
+    </fieldset>
+
+    <ReportDocumentFieldEditor @ref="_fieldEditor"
+                               Fields="Block.Fields"
+                               AvailableFields="_availableFields"
+                               Title="@(IsHeader ? "Fejlécmezők" : "Oszlopok")"
+                               AllowAggregation="@(!IsHeader && Same(Block.Grouping.RowMode, "GROUPED"))"
+                               Disabled="@(IsBusy || !_ready)"
+                               Changed="NotifyChangedAsync" />
+
+    <details class="report-advanced-settings">
+        <summary>Adatrész szűrői (@Block.Filters.Count)</summary>
+
+        <div class="report-step-actions">
+            <button type="button"
+                    class="report-secondary"
+                    @onclick="AddFilterAsync"
+                    disabled="@(IsBusy || !_ready)">
+                + Feltétel hozzáadása
+            </button>
+        </div>
+
+        @foreach (var filter in Block.Filters.ToArray())
+        {
+            <div class="report-field-card report-spaced" @key="filter">
+                <div class="report-field-title">
+                    <strong>Szűrőfeltétel</strong>
+                    <button type="button"
+                            class="report-danger report-small-button"
+                            @onclick="() => RemoveFilterAsync(filter)"
+                            disabled="@IsBusy">
+                        Eltávolítás
+                    </button>
+                </div>
+
+                <div class="report-field-grid">
+                    <label class="report-reference-field">
+                        Vizsgált mező
+                        <select value="@filter.Field"
+                                @onchange="args => ChangeFilterFieldAsync(filter, args)"
+                                disabled="@IsBusy">
+                            <option value="">Válassz mezőt</option>
+                            @foreach (var item in _references.Where(item => item.CanFilter))
+                            {
+                                <option value="@item.Reference">
+                                    @item.DisplayName (@item.Reference)
+                                </option>
+                            }
+                        </select>
+                    </label>
+
+                    <label>
+                        Feltétel
+                        <select value="@filter.Operator"
+                                @onchange="args => ChangeFilterOperatorAsync(filter, args)"
+                                disabled="@IsBusy">
+                            @foreach (var operation in FilterOperators)
+                            {
+                                <option value="@operation.Code">@operation.Label</option>
+                            }
+                        </select>
+                    </label>
+
+                    @if (!IsNullOperation(filter.Operator))
+                    {
+                        @if (!string.IsNullOrWhiteSpace(filter.Parameter))
+                        {
+                            <label class="report-reference-field">
+                                Futási paraméter
+                                <input value="@filter.Parameter" readonly />
+                            </label>
+                            <button type="button"
+                                    class="report-secondary"
+                                    @onclick="() => UseConstantAsync(filter)"
+                                    disabled="@IsBusy">
+                                Állandó értékre váltás
+                            </button>
+                        }
+                        else
+                        {
+                            <label class="report-reference-field">
+                                Érték
+                                @if (Same(FilterDataType(filter), "boolean") &&
+                                     !IsListOperation(filter.Operator))
+                                {
+                                    <select value="@FilterText(filter)"
+                                            @onchange="args => ChangeFilterValueAsync(filter, args)"
+                                            disabled="@IsBusy">
+                                        <option value="">Válassz értéket</option>
+                                        <option value="true">Igen</option>
+                                        <option value="false">Nem</option>
+                                    </select>
+                                }
+                                else
+                                {
+                                    <input type="@FilterInputType(filter)"
+                                           value="@FilterText(filter)"
+                                           @oninput="args => ChangeFilterValueAsync(filter, args)"
+                                           step="any"
+                                           disabled="@IsBusy"
+                                           placeholder="@(IsListOperation(filter.Operator) ? "[\"érték1\", \"érték2\"]" : "Szűrési érték")" />
+                                }
+                            </label>
+                        }
+                    }
+                </div>
+            </div>
+        }
+    </details>
+
+    @if (!IsHeader)
+    {
+        <details class="report-advanced-settings">
+            <summary>Csoportosítás</summary>
+
+            <div class="report-two-column report-spaced">
+                <label>
+                    Sorok kezelése
+                    <select @bind="Block.Grouping.RowMode"
+                            @bind:after="NotifyChangedAsync"
+                            disabled="@IsBusy">
+                        <option value="DETAIL">Részletes sorok</option>
+                        <option value="GROUPED">Csoportosított sorok</option>
+                    </select>
+                </label>
+
+                <div class="report-reference-list">
+                    <strong>Csoportosító mezők</strong>
+
+                    @foreach (var reference in Block.Grouping.GroupBy.ToArray())
+                    {
+                        <div class="report-reference-row" @key="reference">
+                            <span>@FieldLabel(reference)</span>
+                            <button type="button"
+                                    class="report-text-button"
+                                    @onclick="() => RemoveGroupAsync(reference)"
+                                    disabled="@IsBusy">
+                                Eltávolítás
+                            </button>
+                        </div>
+                    }
+
+                    <div class="report-reference-add">
+                        <select @bind="_groupToAdd"
+                                disabled="@IsBusy">
+                            <option value="">Válassz mezőt</option>
+                            @foreach (var item in _references.Where(item =>
+                                item.CanGroup &&
+                                !Block.Grouping.GroupBy.Contains(
+                                    item.Reference,
+                                    StringComparer.OrdinalIgnoreCase)))
+                            {
+                                <option value="@item.Reference">
+                                    @item.DisplayName
+                                </option>
+                            }
+                        </select>
+
+                        <button type="button"
+                                class="report-secondary"
+                                @onclick="AddGroupAsync"
+                                disabled="@(IsBusy || string.IsNullOrWhiteSpace(_groupToAdd))">
+                            Hozzáadás
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </details>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public ReportDocumentDataBlockEditorDefinition Block { get; set; } = new();
+
+    [Parameter]
+    public string Heading { get; set; } = "Adatrész";
+
+    [Parameter]
+    public bool IsHeader { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback Changed { get; set; }
+
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private static readonly (string Code, string Label)[] FilterOperators =
+    [
+        ("EQUALS", "Egyenlő"),
+        ("NOT_EQUALS", "Nem egyenlő"),
+        ("GREATER_THAN", "Nagyobb"),
+        ("GREATER_THAN_OR_EQUAL", "Nagyobb vagy egyenlő"),
+        ("LESS_THAN", "Kisebb"),
+        ("LESS_THAN_OR_EQUAL", "Kisebb vagy egyenlő"),
+        ("CONTAINS", "Tartalmazza"),
+        ("STARTS_WITH", "Ezzel kezdődik"),
+        ("IS_NULL", "Nincs kitöltve"),
+        ("IS_NOT_NULL", "Ki van töltve"),
+        ("IN", "Szerepel a listában"),
+        ("NOT_IN", "Nem szerepel a listában")
+    ];
+
+    private readonly List<CatalogReference> _references = [];
+    private readonly List<CatalogSource> _sources = [];
+    private readonly List<CatalogRelation> _relations = [];
+
+    private readonly Dictionary<string, string> _availableFields =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<ReportDocumentFilterEditorDefinition, string>
+        _filterInputs = [];
+
+    private ReportDocumentFieldEditor? _fieldEditor;
+    private ReportDocumentDataBlockEditorDefinition? _loadedBlock;
+    private CatalogValidity? _validity;
+    private string? _attemptedSource;
+    private string _groupToAdd = "";
+    private bool _loading;
+    private bool _ready;
+
+    private bool IsBusy => Disabled || _loading;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Block.DateFilter ??= new();
+        Block.Fields ??= [];
+        Block.Relations ??= [];
+        Block.Filters ??= [];
+        Block.Parameters ??= [];
+        Block.Grouping ??= new();
+
+        if (!ReferenceEquals(_loadedBlock, Block) ||
+            !Same(_attemptedSource, Block.DataSource))
+        {
+            _loadedBlock = Block;
+            _filterInputs.Clear();
+            await LoadCatalogAsync(Block.DataSource);
+        }
+        else if (_ready)
+        {
+            ApplyAutomaticDateFilters();
+        }
+    }
+
+    public bool Validate()
+    {
+        if (!_ready)
+            return Error($"{Heading}: az adatkatalógus nincs betöltve.");
+
+        ApplyAutomaticDateFilters();
+
+        if (!IsHeader && Block.Fields.Count == 0)
+            return Error($"{Heading}: válassz legalább egy mezőt.");
+
+        if (_fieldEditor is not null && !_fieldEditor.Validate())
+            return false;
+
+        if (!ValidateDateFilter(Block.DateFilter, _validity, null))
+            return false;
+
+        foreach (var configuration in Block.Relations)
+        {
+            var relation = _relations.FirstOrDefault(item =>
+                Same(item.Code, configuration.RelationCode));
+
+            if (relation is null)
+                return Error($"{Heading}: ismeretlen adatkapcsolat.");
+
+            if (!ValidateDateFilter(
+                    configuration.DateFilter,
+                    relation.Validity,
+                    relation.Code))
+                return false;
+        }
+
+        foreach (var filter in Block.Filters)
+        {
+            var reference = _references.FirstOrDefault(item =>
+                Same(item.Reference, filter.Field));
+
+            if (reference is null || !reference.CanFilter)
+                return Error($"{Heading}: válassz érvényes szűrési mezőt.");
+
+            if (!FilterOperators.Any(item => Same(item.Code, filter.Operator)))
+                return Error($"{Heading}: ismeretlen szűrési művelet.");
+
+            if (!IsNullOperation(filter.Operator) &&
+                string.IsNullOrWhiteSpace(filter.Parameter) &&
+                (filter.Constant is null ||
+                 filter.Constant.Value.ValueKind is
+                     JsonValueKind.Null or JsonValueKind.Undefined))
+                return Error($"{Heading}: adj meg érvényes szűrési értéket.");
+        }
+
+        if (!IsHeader && Same(Block.Grouping.RowMode, "GROUPED"))
+        {
+            if (Block.Grouping.GroupBy.Count == 0)
+                return Error($"{Heading}: válassz csoportosító mezőt.");
+
+            foreach (var reference in Block.Grouping.GroupBy)
+            {
+                if (!_references.Any(item =>
+                        Same(item.Reference, reference) && item.CanGroup))
+                    return Error($"{Heading}: érvénytelen csoportosító mező.");
+            }
+        }
+
+        return true;
+    }
+
+    private async Task<bool> LoadCatalogAsync(string code)
+    {
+        _attemptedSource = code;
+        _loading = true;
+        _ready = false;
+        _references.Clear();
+        _relations.Clear();
+        _availableFields.Clear();
+        _validity = null;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/reports/data-catalog?sourceCode={Uri.EscapeDataString(code)}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "Az adatrész adatmezőinek betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var catalog = await response.Content
+                .ReadFromJsonAsync<CatalogResponse>(JsonOptions);
+
+            if (catalog is null)
+                throw new InvalidOperationException();
+
+            _sources.Clear();
+            _sources.AddRange(catalog.Sources
+                .Where(item => item.SupportsEmployeeDocuments)
+                .OrderBy(item => item.DisplayName));
+
+            if (!catalog.SupportsEmployeeDocuments)
+            {
+                Error("Ehhez az adatforráshoz nem rendelhető egyértelműen dolgozó.");
+                return false;
+            }
+
+            _references.AddRange(catalog.References
+                .OrderBy(item => item.DisplayName));
+
+            _relations.AddRange(catalog.Relations);
+            _validity = catalog.Validity;
+
+            foreach (var item in _references)
+                _availableFields.Add(item.Reference, item.DisplayName);
+
+            ApplyAutomaticDateFilters();
+
+            _ready = true;
+            return true;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch
+        {
+            Error("Az adatrész adatkatalógusának feldolgozása sikertelen.");
+            return false;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (!IsBusy)
+            await LoadCatalogAsync(Block.DataSource);
+    }
+
+    private async Task ChangeSourceAsync(ChangeEventArgs args)
+    {
+        var code = args.Value?.ToString() ?? "";
+
+        if (IsBusy ||
+            string.IsNullOrWhiteSpace(code) ||
+            Same(code, Block.DataSource))
+            return;
+
+        var oldCode = Block.DataSource;
+
+        if (!await LoadCatalogAsync(code))
+        {
+            await LoadCatalogAsync(oldCode);
+            return;
+        }
+
+        Block.DataSource = code;
+        Block.Fields.Clear();
+        Block.Filters.Clear();
+        Block.Parameters.Clear();
+        Block.Relations.Clear();
+        Block.Grouping = new();
+        Block.DateFilter = new();
+
+        _filterInputs.Clear();
+        _groupToAdd = "";
+
+        await NotifyChangedAsync();
+    }
+
+    private IEnumerable<CatalogRelation> GetUsedDateRelations()
+    {
+        var codes = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var configuration in Block.Relations)
+            AddRelationAndParents(configuration.RelationCode, codes);
+
+        var references = Block.Fields
+            .Where(item => Same(item.Value.Kind, "REFERENCE"))
+            .Select(item => item.Value.Reference)
+            .Concat(Block.Filters.Select(item => (string?)item.Field))
+            .Concat(Block.Grouping.GroupBy.Select(item => (string?)item))
+            .Concat(Block.Grouping.SortBy.Select(item => (string?)item));
+
+        foreach (var reference in references)
+        {
+            var code = _references.FirstOrDefault(item =>
+                Same(item.Reference, reference))?.RequiredRelationCode;
+
+            AddRelationAndParents(code, codes);
+        }
+
+        return _relations
+            .Where(item =>
+                codes.Contains(item.Code) &&
+                item.Validity is not null)
+            .OrderBy(item => item.DisplayName);
+    }
+
+    private void AddRelationAndParents(
+        string? code,
+        HashSet<string> codes)
+    {
+        var visited = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        while (!string.IsNullOrWhiteSpace(code) && visited.Add(code))
+        {
+            codes.Add(code);
+
+            code = _relations.FirstOrDefault(item =>
+                Same(item.Code, code))?.ParentRelationCode;
+        }
+    }
+
+    private void ApplyAutomaticDateFilters()
+    {
+        Block.DateFilter = CreateAutomaticDateFilter(_validity, null);
+
+        foreach (var relation in GetUsedDateRelations().ToArray())
+        {
+            var configuration = Block.Relations.FirstOrDefault(item =>
+                Same(item.RelationCode, relation.Code));
+
+            if (configuration is null)
+            {
+                configuration = new ReportDocumentRelationEditorDefinition
+                {
+                    RelationCode = relation.Code,
+                    JoinType = relation.JoinType
+                };
+
+                Block.Relations.Add(configuration);
+            }
+
+            configuration.DateFilter = CreateAutomaticDateFilter(
+                relation.Validity,
+                relation.Code);
+        }
+
+        foreach (var configuration in Block.Relations)
+        {
+            var relation = _relations.FirstOrDefault(item =>
+                Same(item.Code, configuration.RelationCode));
+
+            if (relation is not null && relation.Validity is null)
+            {
+                configuration.DateFilter =
+                    new ReportDocumentDateFilterEditorDefinition
+                    {
+                        Mode = "NONE"
+                    };
+            }
+        }
+    }
+
+    private ReportDocumentDateFilterEditorDefinition CreateAutomaticDateFilter(
+        CatalogValidity? validity,
+        string? relationCode)
+    {
+        var from = FindDateReference(
+            validity?.ValidFromField,
+            relationCode);
+
+        var to = FindDateReference(
+            validity?.ValidToField,
+            relationCode);
+
+        if (from is not null)
+        {
+            return new ReportDocumentDateFilterEditorDefinition
+            {
+                Mode = IsHeader ? "AS_OF_DATE" : "DATE_RANGE",
+                ValidFromField = from.Reference,
+                ValidToField = to?.Reference
+            };
+        }
+
+        var date = _references.FirstOrDefault(item =>
+            Same(item.Reference, validity?.DateField) &&
+            Same(item.RequiredRelationCode, relationCode));
+
+        if (date is not null && Same(date.DataType, "month"))
+        {
+            return new ReportDocumentDateFilterEditorDefinition
+            {
+                Mode = "MONTH_RANGE",
+                DateField = date.Reference
+            };
+        }
+
+        if (date is not null && IsDateType(date.DataType))
+        {
+            return new ReportDocumentDateFilterEditorDefinition
+            {
+                Mode = IsHeader ? "AS_OF_DATE" : "DATE_RANGE",
+                DateField = date.Reference
+            };
+        }
+
+        var monthFields = _references
+            .Where(item =>
+                Same(item.RequiredRelationCode, relationCode) &&
+                Same(item.DataType, "month"))
+            .ToArray();
+
+        if (monthFields.Length == 1)
+        {
+            return new ReportDocumentDateFilterEditorDefinition
+            {
+                Mode = "MONTH_RANGE",
+                DateField = monthFields[0].Reference
+            };
+        }
+
+        return new ReportDocumentDateFilterEditorDefinition
+        {
+            Mode = "NONE"
+        };
+    }
+
+    private CatalogReference? FindDateReference(
+        string? reference,
+        string? relationCode)
+    {
+        if (string.IsNullOrWhiteSpace(reference))
+            return null;
+
+        return _references.FirstOrDefault(item =>
+            Same(item.Reference, reference) &&
+            Same(item.RequiredRelationCode, relationCode) &&
+            IsDateType(item.DataType));
+    }
+
+    private bool ValidateDateFilter(
+        ReportDocumentDateFilterEditorDefinition filter,
+        CatalogValidity? validity,
+        string? relationCode)
+    {
+        if (Same(filter.Mode, "NONE"))
+            return true;
+
+        var date = Clean(filter.DateField) ?? validity?.DateField;
+        var from = Clean(filter.ValidFromField) ?? validity?.ValidFromField;
+        var to = Clean(filter.ValidToField) ?? validity?.ValidToField;
+
+        bool Matches(string? reference, bool month)
+        {
+            return _references.Any(item =>
+                Same(item.Reference, reference) &&
+                Same(item.RequiredRelationCode, relationCode) &&
+                (month
+                    ? Same(item.DataType, "month")
+                    : IsDateType(item.DataType)));
+        }
+
+        if (Same(filter.Mode, "MONTH_RANGE"))
+        {
+            return Matches(date, true) ||
+                   Error($"{Heading}: a havi szűréshez periódusmező szükséges.");
+        }
+
+        if (!Same(filter.Mode, "AS_OF_DATE") &&
+            !Same(filter.Mode, "DATE_RANGE"))
+            return Error($"{Heading}: ismeretlen dátumszűrési mód.");
+
+        if (from is not null)
+        {
+            return (Matches(from, false) &&
+                    (to is null || Matches(to, false))) ||
+                   Error($"{Heading}: érvénytelen érvényességi mezők.");
+        }
+
+        return Matches(date, false) ||
+               Error($"{Heading}: nem határozható meg a vizsgált dátummező.");
+    }
+
+    private async Task AddFilterAsync()
+    {
+        if (IsBusy || !_ready)
+            return;
+
+        Block.Filters.Add(new ReportDocumentFilterEditorDefinition());
+        await NotifyChangedAsync();
+    }
+
+    private async Task RemoveFilterAsync(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        Block.Filters.Remove(filter);
+        _filterInputs.Remove(filter);
+        await NotifyChangedAsync();
+    }
+
+    private async Task ChangeFilterFieldAsync(
+        ReportDocumentFilterEditorDefinition filter,
+        ChangeEventArgs args)
+    {
+        filter.Field = args.Value?.ToString() ?? "";
+        UpdateFilterConstant(filter);
+        await NotifyChangedAsync();
+    }
+
+    private async Task ChangeFilterOperatorAsync(
+        ReportDocumentFilterEditorDefinition filter,
+        ChangeEventArgs args)
+    {
+        filter.Operator = args.Value?.ToString() ?? "EQUALS";
+        UpdateFilterConstant(filter);
+        await NotifyChangedAsync();
+    }
+
+    private async Task ChangeFilterValueAsync(
+        ReportDocumentFilterEditorDefinition filter,
+        ChangeEventArgs args)
+    {
+        _filterInputs[filter] = args.Value?.ToString() ?? "";
+        UpdateFilterConstant(filter);
+        await NotifyChangedAsync();
+    }
+
+    private async Task UseConstantAsync(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        filter.Parameter = null;
+        filter.Constant = null;
+        _filterInputs[filter] = "";
+        await NotifyChangedAsync();
+    }
+
+    private void UpdateFilterConstant(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (IsNullOperation(filter.Operator))
+        {
+            filter.Constant = null;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Parameter))
+            return;
+
+        var text = FilterText(filter);
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            filter.Constant = null;
+            return;
+        }
+
+        try
+        {
+            if (IsListOperation(filter.Operator))
+            {
+                using var document = JsonDocument.Parse(text);
+
+                if (document.RootElement.ValueKind != JsonValueKind.Array ||
+                    document.RootElement.GetArrayLength() == 0)
+                    throw new FormatException();
+
+                var items = document.RootElement
+                    .EnumerateArray()
+                    .Select(item =>
+                    {
+                        if (item.ValueKind is
+                            JsonValueKind.Array or
+                            JsonValueKind.Object or
+                            JsonValueKind.Null)
+                            throw new FormatException();
+
+                        return ParseValue(
+                            FilterDataType(filter),
+                            item.ValueKind == JsonValueKind.String
+                                ? item.GetString() ?? ""
+                                : item.GetRawText());
+                    })
+                    .ToArray();
+
+                filter.Constant = JsonSerializer.SerializeToElement(items);
+            }
+            else
+            {
+                filter.Constant = ParseValue(
+                    FilterDataType(filter),
+                    text);
+            }
+        }
+        catch
+        {
+            filter.Constant = null;
+        }
+    }
+
+    private static JsonElement ParseValue(string type, string text)
+    {
+        object value = type.ToLowerInvariant() switch
+        {
+            "integer" => long.Parse(
+                text,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture),
+
+            "decimal" or "number" => decimal.Parse(
+                text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture),
+
+            "boolean" => bool.Parse(text),
+
+            "date" => DateOnly.ParseExact(
+                    text,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture)
+                .ToString(
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture),
+
+            "month" => ParseMonth(text),
+
+            "time" => TimeOnly.Parse(
+                    text,
+                    CultureInfo.InvariantCulture)
+                .ToString(
+                    "HH:mm:ss.fffffff",
+                    CultureInfo.InvariantCulture),
+
+            "datetime" => DateTime.Parse(
+                    text,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind)
+                .ToString(
+                    "O",
+                    CultureInfo.InvariantCulture),
+
+            "datetimeoffset" => DateTimeOffset.Parse(
+                    text,
+                    CultureInfo.InvariantCulture)
+                .ToString(
+                    "O",
+                    CultureInfo.InvariantCulture),
+
+            "guid" => Guid.Parse(text).ToString(),
+
+            _ => text
+        };
+
+        return JsonSerializer.SerializeToElement(value);
+    }
+
+    private static string ParseMonth(string text)
+    {
+        if (text.Length != 7)
+            throw new FormatException();
+
+        return DateOnly.ParseExact(
+                $"{text}-01",
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture)
+            .ToString(
+                "yyyy-MM",
+                CultureInfo.InvariantCulture);
+    }
+
+    private string FilterDataType(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        return _references.FirstOrDefault(item =>
+            Same(item.Reference, filter.Field))?.DataType ?? "text";
+    }
+
+    private string FilterInputType(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (IsListOperation(filter.Operator))
+            return "text";
+
+        return FilterDataType(filter).ToLowerInvariant() switch
+        {
+            "integer" or "decimal" or "number" => "number",
+            "date" => "date",
+            "month" => "month",
+            "time" => "time",
+            "datetime" => "datetime-local",
+            _ => "text"
+        };
+    }
+
+    private string FilterText(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (_filterInputs.TryGetValue(filter, out var text))
+            return text;
+
+        if (filter.Constant is not { } value ||
+            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            return "";
+
+        return value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? ""
+            : value.GetRawText();
+    }
+
+    private async Task AddGroupAsync()
+    {
+        if (IsBusy || !_ready)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(_groupToAdd) &&
+            !Block.Grouping.GroupBy.Contains(
+                _groupToAdd,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            Block.Grouping.GroupBy.Add(_groupToAdd);
+        }
+
+        _groupToAdd = "";
+        await NotifyChangedAsync();
+    }
+
+    private async Task RemoveGroupAsync(string reference)
+    {
+        Block.Grouping.GroupBy.RemoveAll(item =>
+            Same(item, reference));
+
+        await NotifyChangedAsync();
+    }
+
+    private string FieldLabel(string reference)
+    {
+        return _references.FirstOrDefault(item =>
+            Same(item.Reference, reference))?.DisplayName ?? reference;
+    }
+
+    private Task NotifyChangedAsync()
+    {
+        if (_ready)
+            ApplyAutomaticDateFilters();
+
+        return Changed.InvokeAsync();
+    }
+
+    private bool Error(string message)
+    {
+        Feedback.ShowError(message);
+        return false;
+    }
+
+    private static bool IsDateType(string type) =>
+        Same(type, "date") || Same(type, "datetime");
+
+    private static bool IsNullOperation(string operation) =>
+        Same(operation, "IS_NULL") ||
+        Same(operation, "IS_NOT_NULL");
+
+    private static bool IsListOperation(string operation) =>
+        Same(operation, "IN") ||
+        Same(operation, "NOT_IN");
+
+    private static string? Clean(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim();
+
+    private static bool Same(string? first, string? second) =>
+        string.Equals(
+            first,
+            second,
+            StringComparison.OrdinalIgnoreCase);
+
+    public sealed class CatalogResponse
+    {
+        public bool SupportsEmployeeDocuments { get; set; }
+        public List<CatalogSource> Sources { get; set; } = [];
+        public List<CatalogReference> References { get; set; } = [];
+        public List<CatalogRelation> Relations { get; set; } = [];
+        public CatalogValidity? Validity { get; set; }
+    }
+
+    public sealed class CatalogSource
+    {
+        public string Code { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public bool SupportsEmployeeDocuments { get; set; }
+    }
+
+    public sealed class CatalogReference
+    {
+        public string Reference { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string DataType { get; set; } = "text";
+        public bool CanFilter { get; set; }
+        public bool CanGroup { get; set; }
+        public string? RequiredRelationCode { get; set; }
+    }
+
+    public sealed class CatalogRelation
+    {
+        public string Code { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string JoinType { get; set; } = "LEFT";
+        public string? ParentRelationCode { get; set; }
+        public CatalogValidity? Validity { get; set; }
+    }
+
+    public sealed class CatalogValidity
+    {
+        public string? DateField { get; set; }
+        public string? ValidFromField { get; set; }
+        public string? ValidToField { get; set; }
+    }
+}

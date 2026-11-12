@@ -1,0 +1,128 @@
+﻿.company-page {
+    width: 100%;
+    color: #101828;
+}
+
+    .company-page h1 {
+        margin: 0 0 1.25rem;
+        text-align: center;
+        font-size: 1.8rem;
+    }
+
+.company-card {
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: #fff;
+}
+
+    .company-card h2 {
+        margin: 0 0 1rem;
+        color: #344054;
+        font-size: 1.15rem;
+    }
+
+.company-search,
+.company-actions {
+    display: flex;
+    gap: 0.65rem;
+}
+
+    .company-search input {
+        flex: 1;
+    }
+
+.company-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+    .company-grid label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        color: #344054;
+        font-weight: 600;
+    }
+
+    .company-grid input,
+    .company-grid textarea,
+    .company-search input {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 42px;
+        padding: 0.6rem 0.7rem;
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        font: inherit;
+    }
+
+    .company-grid textarea {
+        resize: vertical;
+    }
+
+.company-wide {
+    grid-column: 1 / -1;
+}
+
+.company-table-wrap {
+    margin-top: 1rem;
+    overflow-x: auto;
+}
+
+    .company-table-wrap table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .company-table-wrap th,
+    .company-table-wrap td {
+        padding: 0.75rem;
+        border-bottom: 1px solid #eaecf0;
+        text-align: left;
+    }
+
+.company-actions {
+    justify-content: flex-end;
+    margin-top: 1.25rem;
+}
+
+.company-page button {
+    min-height: 40px;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #101828;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.company-actions button[type="submit"] {
+    border-color: #175cd3;
+    background: #175cd3;
+    color: #fff;
+}
+
+@media (max-width: 700px) {
+    .company-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .company-wide {
+        grid-column: auto;
+    }
+
+    .company-search,
+    .company-actions {
+        flex-direction: column;
+    }
+
+    .company-page h1 {
+        text-align: left;
+        font-size: 1.45rem;
+    }
+}

@@ -1,0 +1,465 @@
+﻿@using System.Net.Http.Json
+@using System.Text.Json
+@using PayrollEngine.Web.Services
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Séma-karbantartás</PageTitle>
+
+<main class="payroll-schema-page">
+    <header class="payroll-schema-header">
+        <button type="button" class="schema-secondary" @onclick="BackToApps">Vissza az alkalmazásokhoz</button>
+        <h1>Séma-karbantartás</h1>
+    </header>
+
+    <section class="schema-toolbar">
+        <label class="schema-search">
+            Rögzített sémák keresése
+            <input @bind="_schemaSearch" @bind:event="oninput" placeholder="Sémakód vagy név" />
+        </label>
+        <button type="button" class="schema-secondary" @onclick="NewSchema" disabled="@_isSaving">Új séma</button>
+        <button type="button" class="schema-danger" @onclick="OpenDeleteDialog" disabled="@(_schema is null || _isNew || _isSaving)">Séma törlése</button>
+    </section>
+
+    @if (_isLoadingSchemas)
+    {
+        <p class="schema-muted">Sémák betöltése…</p>
+    }
+    else if (FilteredSchemas.Any())
+    {
+        <section class="schema-list" aria-label="Rögzített sémák">
+            @foreach (var item in FilteredSchemas)
+            {
+                <button type="button"
+                        class="schema-list-item @(string.Equals(_schema?.SchemaCode, item.SchemaCode, StringComparison.OrdinalIgnoreCase) ? "is-selected" : string.Empty)"
+                        @onclick="() => SelectSchemaAsync(item.SchemaCode)"
+                        @key="item.SchemaCode">
+                    <strong>@item.Name</strong>
+                    <small>@item.SchemaCode · v@item.Version · @(item.IsActive ? "Aktív" : "Inaktív")</small>
+                </button>
+            }
+        </section>
+    }
+
+    <div class="schema-workspace">
+        <aside class="schema-rule-catalog">
+            <div class="schema-rule-catalog-heading">
+                <h2>Választható aktív szabályok</h2>
+                <span>@FilteredActiveRules.Count() db</span>
+            </div>
+            <input class="schema-rule-search" @bind="_ruleSearch" @bind:event="oninput" placeholder="Keresés név vagy kód alapján" />
+            @if (_isLoadingRules)
+            {
+                <p class="schema-muted">Szabályok betöltése…</p>
+            }
+            else if (!FilteredActiveRules.Any())
+            {
+                <p class="schema-muted">Nincs találat az aktív szabályok között.</p>
+            }
+            else
+            {
+                <div class="schema-rule-catalog-list">
+                    @foreach (var rule in FilteredActiveRules)
+                    {
+                        <article class="schema-rule-catalog-item" @key="rule.RuleCode">
+                            <strong>@rule.Name</strong>
+                            <small>@rule.RuleCode · v@rule.Version</small>
+                        </article>
+                    }
+                </div>
+            }
+        </aside>
+
+        <section class="schema-editor-card">
+            @if (_schema is null)
+            {
+                <div class="schema-empty-state">
+                    <h2>Válassz sémát vagy hozz létre újat</h2>
+                    <p>A sémablokkokban egymás után rendezheted a számfejtési szabályokat.</p>
+                </div>
+            }
+            else
+            {
+                <div class="schema-editor-topline">
+                    <div>
+                        <span class="schema-eyebrow">@(_isNew ? "Új séma" : "Kiválasztott séma")</span>
+                        <h2>@(_schema.Name.Length == 0 ? "Névtelen séma" : _schema.Name)</h2>
+                        @if (!_isNew)
+                        {
+                            <small>@_schema.SchemaCode</small>
+                        }
+                    </div>
+                    <span class="schema-status @(_schema.IsActive ? "is-active" : "is-inactive")">@(_schema.IsActive ? "Aktív" : "Inaktív")</span>
+                </div>
+
+                <div class="schema-metadata-grid">
+                    <label>
+                        Sémakód @(_isNew ? "*" : "")
+                        <input @bind="_schema.SchemaCode" maxlength="100" disabled="@(!_isNew || _isSaving)" placeholder="Például HAVI_SZAMFEJTES" />
+                    </label>
+                    <label class="schema-name-field">
+                        Séma neve *
+                        <input @bind="_schema.Name" maxlength="200" disabled="@_isSaving" />
+                    </label>
+                    <label>
+                        Verzió
+                        <input type="number" min="1" @bind="_schema.Version" disabled="@_isSaving" />
+                    </label>
+                    <label class="schema-active-toggle">
+                        <input type="checkbox" @bind="_schema.IsActive" disabled="@_isSaving" />
+                        Aktív séma
+                    </label>
+                </div>
+
+                <section class="schema-blocks-section">
+                    <div class="schema-section-heading">
+                        <div>
+                            <h3>Sémablokkok</h3>
+                            <p>A blokkok, majd a blokkon belüli szabályok sorrendben futnak le.</p>
+                        </div>
+                        <button type="button" class="schema-secondary" @onclick="AddBlock" disabled="@_isSaving">+ Blokk hozzáadása</button>
+                    </div>
+
+                    @if (_schema.Blocks.Count == 0)
+                    {
+                        <div class="schema-empty-blocks">
+                            <p>Még nincs blokk a sémában.</p>
+                            <button type="button" class="schema-secondary" @onclick="AddBlock" disabled="@_isSaving">Első blokk hozzáadása</button>
+                        </div>
+                    }
+                    else
+                    {
+                        @for (var blockIndex = 0; blockIndex < _schema.Blocks.Count; blockIndex++)
+                        {
+                            var currentBlockIndex = blockIndex;
+                            var block = _schema.Blocks[currentBlockIndex];
+                            <section class="schema-block-card" @key="block">
+                                <header class="schema-block-header">
+                                    <div class="schema-block-title">
+                                        <span>Blokk @(currentBlockIndex + 1)</span>
+                                        <input aria-label="Blokk neve" @bind="block.Name" maxlength="200" disabled="@_isSaving" placeholder="Például Alapbérek" />
+                                    </div>
+                                    <button type="button" class="schema-remove-block" @onclick="() => RemoveBlock(currentBlockIndex)" disabled="@_isSaving">Blokk eltávolítása</button>
+                                </header>
+
+                                @if (block.Rules.Count == 0)
+                                {
+                                    <div class="schema-empty-rules">
+                                        <span>Ebben a blokkban még nincs szabály.</span>
+                                        <button type="button" class="schema-add-rule" @onclick="() => AddRule(currentBlockIndex, -1)" disabled="@_isSaving">+ Szabály hozzáadása</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @for (var ruleIndex = 0; ruleIndex < block.Rules.Count; ruleIndex++)
+                                    {
+                                        var currentRuleIndex = ruleIndex;
+                                        var rule = block.Rules[currentRuleIndex];
+                                        <div class="schema-rule-row" @key="rule">
+                                            <span class="schema-rule-number">@(currentRuleIndex + 1).</span>
+                                            <label class="schema-rule-select">
+                                                <span>Szabály</span>
+                                                <select value="@rule.RuleCode" @onchange="args => SetRule(currentBlockIndex, currentRuleIndex, args.Value?.ToString())" disabled="@_isSaving">
+                                                    <option value="">Válassz aktív szabályt…</option>
+                                                    @foreach (var availableRule in GetRulesFor(rule))
+                                                    {
+                                                        <option value="@availableRule.RuleCode">@availableRule.Name (@availableRule.RuleCode)</option>
+                                                    }
+                                                </select>
+                                            </label>
+                                            <div class="schema-rule-actions">
+                                                <button type="button" class="schema-remove-rule" @onclick="() => RemoveRule(currentBlockIndex, currentRuleIndex)" disabled="@_isSaving">Szabály eltávolítása</button>
+                                                <button type="button" class="schema-add-rule" @onclick="() => AddRule(currentBlockIndex, currentRuleIndex)" disabled="@_isSaving">Szabály hozzáadása</button>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            </section>
+                        }
+                    }
+                </section>
+
+                <footer class="schema-editor-footer">
+                    <p class="schema-muted">A blokkban lévő szabályok sorrendben futnak. A hozzáadás gomb az adott szabály után szúr be új mezőt.</p>
+                    <div class="schema-footer-actions">
+                        <button type="button" class="schema-secondary" @onclick="CancelChanges" disabled="@_isSaving">Mégse</button>
+                        <button type="button" class="schema-primary" @onclick="SaveSchemaAsync" disabled="@_isSaving">
+                            @(_isSaving ? "Mentés…" : _isNew ? "Séma létrehozása" : "Módosítások mentése")
+                        </button>
+                    </div>
+                </footer>
+            }
+        </section>
+
+    </div>
+
+    @if (_showDeleteDialog && _schema is not null)
+    {
+        <div class="schema-dialog-backdrop" @onclick="CloseDeleteDialog">
+            <section class="schema-dialog" role="dialog" aria-modal="true" aria-labelledby="schema-delete-title" @onclick:stopPropagation="true">
+                <h2 id="schema-delete-title">Séma törlése</h2>
+                <p>Biztosan törlöd a(z) <strong>@_schema.Name</strong> sémát?</p>
+                <div class="schema-dialog-actions">
+                    <button type="button" class="schema-secondary" @onclick="CloseDeleteDialog" disabled="@_isDeleting">Mégse</button>
+                    <button type="button" class="schema-danger" @onclick="DeleteSchemaAsync" disabled="@_isDeleting">@(_isDeleting ? "Törlés…" : "Séma törlése")</button>
+                </div>
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private readonly List<SchemaSummary> _schemas = [];
+    private readonly List<RuleChoice> _rules = [];
+    private PayrollSchema? _schema;
+    private string? _originalSchemaCode;
+    private string _schemaSearch = string.Empty;
+    private string _ruleSearch = string.Empty;
+    private bool _isNew;
+    private bool _isLoadingSchemas;
+    private bool _isLoadingRules;
+    private bool _isSaving;
+    private bool _isDeleting;
+    private bool _showDeleteDialog;
+
+    private IEnumerable<SchemaSummary> FilteredSchemas => _schemas
+        .Where(item => string.IsNullOrWhiteSpace(_schemaSearch)
+            || item.Name.Contains(_schemaSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+            || item.SchemaCode.Contains(_schemaSearch.Trim(), StringComparison.OrdinalIgnoreCase))
+        .OrderBy(item => item.Name);
+
+    private IEnumerable<RuleChoice> FilteredActiveRules => _rules
+        .Where(rule => rule.IsActive)
+        .Where(rule => string.IsNullOrWhiteSpace(_ruleSearch)
+            || rule.Name.Contains(_ruleSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+            || rule.RuleCode.Contains(_ruleSearch.Trim(), StringComparison.OrdinalIgnoreCase))
+        .OrderBy(rule => rule.Name);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadSchemasAsync(), LoadRulesAsync());
+    }
+
+    private async Task LoadSchemasAsync()
+    {
+        _isLoadingSchemas = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/payroll-schemas");
+            using var response = await Api.SendAsync(request, fallbackErrorMessage: "A sémák betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var items = await response.Content.ReadFromJsonAsync<List<SchemaSummary>>(JsonOptions);
+            _schemas.Clear();
+            _schemas.AddRange(items ?? []);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A sémák betöltése közben hiba történt."); }
+        finally { _isLoadingSchemas = false; }
+    }
+
+    private async Task LoadRulesAsync()
+    {
+        _isLoadingRules = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/payroll-schemas/available-rules");
+            using var response = await Api.SendAsync(request, fallbackErrorMessage: "A választható szabályok betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var items = await response.Content.ReadFromJsonAsync<List<RuleChoice>>(JsonOptions);
+            _rules.Clear();
+            _rules.AddRange(items ?? []);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A választható szabályok betöltése közben hiba történt."); }
+        finally { _isLoadingRules = false; }
+    }
+
+    private async Task SelectSchemaAsync(string schemaCode)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"api/payroll-schemas/{Uri.EscapeDataString(schemaCode)}");
+            using var response = await Api.SendAsync(request, fallbackErrorMessage: "A séma betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            _schema = await response.Content.ReadFromJsonAsync<PayrollSchema>(JsonOptions);
+            if (_schema is null) return;
+            _schema.Blocks ??= [];
+            foreach (var block in _schema.Blocks) block.Rules ??= [];
+            _originalSchemaCode = _schema.SchemaCode;
+            _isNew = false;
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A séma betöltése közben hiba történt."); }
+    }
+
+    private void NewSchema()
+    {
+        _schema = new PayrollSchema();
+        _originalSchemaCode = null;
+        _isNew = true;
+        AddBlock();
+    }
+
+    private void CancelChanges()
+    {
+        if (_isNew)
+        {
+            _schema = null;
+            _originalSchemaCode = null;
+            _isNew = false;
+            return;
+        }
+
+        if (_originalSchemaCode is not null) _ = SelectSchemaAsync(_originalSchemaCode);
+    }
+
+    private void AddBlock()
+    {
+        if (_schema is null) return;
+        _schema.Blocks.Add(new SchemaBlock { Name = $"Blokk {_schema.Blocks.Count + 1}" });
+    }
+
+    private void RemoveBlock(int index)
+    {
+        if (_schema is null || index < 0 || index >= _schema.Blocks.Count) return;
+        _schema.Blocks.RemoveAt(index);
+    }
+
+    private void AddRule(int blockIndex, int afterIndex)
+    {
+        if (_schema is null || blockIndex < 0 || blockIndex >= _schema.Blocks.Count) return;
+        var rules = _schema.Blocks[blockIndex].Rules;
+        var insertAt = Math.Clamp(afterIndex + 1, 0, rules.Count);
+        rules.Insert(insertAt, new SchemaRuleReference());
+    }
+
+    private void RemoveRule(int blockIndex, int ruleIndex)
+    {
+        if (_schema is null || blockIndex < 0 || blockIndex >= _schema.Blocks.Count) return;
+        var rules = _schema.Blocks[blockIndex].Rules;
+        if (ruleIndex >= 0 && ruleIndex < rules.Count) rules.RemoveAt(ruleIndex);
+    }
+
+    private IEnumerable<RuleChoice> GetRulesFor(SchemaRuleReference current)
+    {
+        var available = _rules.Where(rule => rule.IsActive || string.Equals(rule.RuleCode, current.RuleCode, StringComparison.OrdinalIgnoreCase));
+        return available.OrderBy(rule => rule.Name);
+    }
+
+    private void SetRule(int blockIndex, int ruleIndex, string? ruleCode)
+    {
+        if (_schema is null || blockIndex < 0 || blockIndex >= _schema.Blocks.Count) return;
+        var rules = _schema.Blocks[blockIndex].Rules;
+        if (ruleIndex < 0 || ruleIndex >= rules.Count) return;
+
+        var choice = _rules.FirstOrDefault(rule => string.Equals(rule.RuleCode, ruleCode, StringComparison.OrdinalIgnoreCase));
+        rules[ruleIndex].RuleCode = choice?.RuleCode ?? string.Empty;
+        rules[ruleIndex].RuleName = choice?.Name ?? string.Empty;
+    }
+
+    private async Task SaveSchemaAsync()
+    {
+        if (_schema is null || _isSaving) return;
+        if (string.IsNullOrWhiteSpace(_schema.SchemaCode) || string.IsNullOrWhiteSpace(_schema.Name))
+        {
+            Feedback.ShowError("A sémakód és a séma neve kötelező.");
+            return;
+        }
+        if (_schema.Version <= 0)
+        {
+            Feedback.ShowError("A verziónak pozitív egész számnak kell lennie.");
+            return;
+        }
+        if (_schema.Blocks.Any(block => block.Rules.Any(rule => string.IsNullOrWhiteSpace(rule.RuleCode))))
+        {
+            Feedback.ShowError("Minden szabálymezőben válassz szabályt, vagy távolítsd el az üres mezőt.");
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            var isCreating = _isNew;
+            var url = isCreating
+                ? "api/payroll-schemas"
+                : $"api/payroll-schemas/{Uri.EscapeDataString(_originalSchemaCode ?? _schema.SchemaCode)}";
+            using var request = new HttpRequestMessage(isCreating ? HttpMethod.Post : HttpMethod.Put, url)
+            {
+                Content = JsonContent.Create(_schema, options: JsonOptions)
+            };
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: isCreating ? "A séma létrejött." : "A séma módosításai mentésre kerültek.",
+                fallbackErrorMessage: "A séma mentése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var code = _schema.SchemaCode;
+            _isNew = false;
+            _originalSchemaCode = code;
+            await LoadSchemasAsync();
+            await SelectSchemaAsync(code);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A séma mentése közben hiba történt."); }
+        finally { _isSaving = false; }
+    }
+
+    private void OpenDeleteDialog() => _showDeleteDialog = _schema is not null && !_isNew;
+    private void CloseDeleteDialog() { if (!_isDeleting) _showDeleteDialog = false; }
+
+    private async Task DeleteSchemaAsync()
+    {
+        if (_schema is null || _isNew || _isDeleting) return;
+        _isDeleting = true;
+        var code = _schema.SchemaCode;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Delete, $"api/payroll-schemas/{Uri.EscapeDataString(code)}");
+            using var response = await Api.SendAsync(request,
+                fallbackSuccessMessage: "A séma törlése sikerült.",
+                fallbackErrorMessage: "A séma törlése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            _showDeleteDialog = false;
+            _schema = null;
+            _originalSchemaCode = null;
+            _isNew = false;
+            await LoadSchemasAsync();
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A séma törlése közben hiba történt."); }
+        finally { _isDeleting = false; }
+    }
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private sealed record SchemaSummary(string SchemaCode, string Name, int Version, bool IsActive);
+    private sealed record RuleChoice(string RuleCode, string Name, int Version, bool IsActive);
+
+    private sealed class PayrollSchema
+    {
+        public string SchemaCode { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public int Version { get; set; } = 1;
+        public bool IsActive { get; set; } = true;
+        public List<SchemaBlock> Blocks { get; set; } = [];
+    }
+
+    private sealed class SchemaBlock
+    {
+        public string Name { get; set; } = string.Empty;
+        public List<SchemaRuleReference> Rules { get; set; } = [];
+    }
+
+    private sealed class SchemaRuleReference
+    {
+        public string RuleCode { get; set; } = string.Empty;
+        public string RuleName { get; set; } = string.Empty;
+    }
+}

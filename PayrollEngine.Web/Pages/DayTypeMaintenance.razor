@@ -1,0 +1,440 @@
+﻿@page "/workschedule/day-types"
+@using System.Globalization
+@using System.Text.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Naptípusok</PageTitle>
+
+<main class="daytype-page">
+    <header class="daytype-header">
+        <button type="button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <h1>Naptípusok karbantartása</h1>
+    </header>
+
+    <section class="daytype-card">
+        <h2>Rögzített naptípusok</h2>
+
+        <div class="daytype-search">
+            <input @bind="_search"
+                   @bind:event="oninput"
+                   placeholder="Keresés kód vagy név alapján" />
+
+            <button type="button"
+                    @onclick="LoadAsync"
+                    disabled="@_isLoading">
+                @(_isLoading ? "Betöltés…" : "Keresés")
+            </button>
+        </div>
+
+        @if (_isLoading && _items.Count == 0)
+        {
+            <p>A naptípusok betöltése…</p>
+        }
+        else if (_items.Count == 0)
+        {
+            <p>Nem található naptípus.</p>
+        }
+        else
+        {
+            <div class="daytype-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kód</th>
+                            <th>Megnevezés</th>
+                            <th>Munkanap</th>
+                            <th>Kezdés</th>
+                            <th>Befejezés</th>
+                            <th>Szünet</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _items)
+                        {
+                            <tr>
+                                <td>@item.Code</td>
+                                <td>@item.Name</td>
+                                <td>@(item.IsWorkday ? "Igen" : "Nem")</td>
+                                <td>@FormatTime(item.StartTime)</td>
+                                <td>@FormatTime(item.EndTime)</td>
+                                <td>@item.BreakMinutes perc</td>
+                                <td class="daytype-row-actions">
+                                    <button type="button"
+                                            @onclick="() => EditAsync(item.DayTypeId)"
+                                            disabled="@_isLoading">
+                                        Szerkesztés
+                                    </button>
+                                    <button type="button"
+                                            class="daytype-delete"
+                                            @onclick="() => AskDelete(item)">
+                                        Törlés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="daytype-card">
+        <h2>@(_dayTypeId.HasValue ? "Naptípus módosítása" : "Új naptípus")</h2>
+
+        <div class="daytype-grid">
+            <label>
+                Kód *
+                <input @bind="_code" maxlength="30" />
+            </label>
+
+            <label>
+                Megnevezés *
+                <input @bind="_name" maxlength="100" />
+            </label>
+
+            <label class="daytype-checkbox">
+                <input type="checkbox" @bind="_isWorkday" />
+                Munkanap
+            </label>
+
+            <label>
+                Kezdés
+                <input type="text" @bind="_startTime" />
+            </label>
+
+            <label>
+                Befejezés
+                <input type="text" @bind="_endTime" />
+            </label>
+
+            <label>
+                Szünet hossza percben
+                <input type="number"
+                       min="0"
+                       max="32767"
+                       @bind="_breakMinutes" />
+            </label>
+        </div>
+
+        <div class="daytype-actions">
+            @if (_dayTypeId.HasValue)
+            {
+                <button type="button" @onclick="NewDayType" disabled="@_isSaving">
+                    Új naptípus
+                </button>
+            }
+
+            <button type="button"
+                    class="daytype-save"
+                    @onclick="SaveAsync"
+                    disabled="@_isSaving">
+                @(_isSaving
+                    ? "Mentés…"
+                    : _dayTypeId.HasValue
+                        ? "Módosítások mentése"
+                        : "Naptípus létrehozása")
+            </button>
+        </div>
+    </section>
+</main>
+
+@if (_deleteTarget is not null)
+{
+    <div class="daytype-modal-backdrop" @onclick="CancelDelete">
+        <section class="daytype-modal"
+                 role="dialog"
+                 aria-modal="true"
+                 @onclick:stopPropagation="true">
+            <h2>Naptípus törlése</h2>
+            <p>
+                Biztosan törlöd a(z) <strong>@_deleteTarget.Name</strong> naptípust?
+            </p>
+            <div class="daytype-actions">
+                <button type="button" @onclick="CancelDelete" disabled="@_isDeleting">
+                    Mégse
+                </button>
+                <button type="button"
+                        class="daytype-delete-confirm"
+                        @onclick="DeleteAsync"
+                        disabled="@_isDeleting">
+                    @(_isDeleting ? "Törlés…" : "Törlés")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private string _search = string.Empty;
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private string _startTime = string.Empty;
+    private string _endTime = string.Empty;
+    private bool _isWorkday;
+    private int _breakMinutes;
+    private int? _dayTypeId;
+    private bool _isLoading;
+    private bool _isSaving;
+    private bool _isDeleting;
+    private List<DayTypeItem> _items = [];
+    private DayTypeItem? _deleteTarget;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (_isLoading)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            var search = _search.Trim();
+            var url = string.IsNullOrWhiteSpace(search)
+                ? "api/day-types"
+                : $"api/day-types?search={Uri.EscapeDataString(search)}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A naptípusok betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _items = [];
+                return;
+            }
+
+            _items =
+                await response.Content.ReadFromJsonAsync<List<DayTypeItem>>(JsonOptions) ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A naptípusok betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task EditAsync(int id)
+    {
+        using var request =
+            new HttpRequestMessage(HttpMethod.Get, $"api/day-types/{id}");
+
+        using var response = await Api.SendAsync(
+            request,
+            fallbackErrorMessage: "A naptípus betöltése sikertelen.");
+
+        if (!response.IsSuccessStatusCode)
+            return;
+
+        var item = await response.Content.ReadFromJsonAsync<DayTypeItem>(JsonOptions);
+
+        if (item is null)
+        {
+            Feedback.ShowError("A naptípus adatai nem olvashatók.");
+            return;
+        }
+
+        _dayTypeId = item.DayTypeId;
+        _code = item.Code;
+        _name = item.Name;
+        _isWorkday = item.IsWorkday;
+        _startTime = FormatTimeForInput(item.StartTime);
+        _endTime = FormatTimeForInput(item.EndTime);
+        _breakMinutes = item.BreakMinutes;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_code) ||
+            string.IsNullOrWhiteSpace(_name))
+        {
+            Feedback.ShowError("A kód és a megnevezés megadása kötelező.");
+            return;
+        }
+
+        if (!TryParseTime(_startTime, out var startTime) ||
+            !TryParseTime(_endTime, out var endTime))
+        {
+            Feedback.ShowError("Ellenőrizd a kezdési és befejezési időt.");
+            return;
+        }
+
+        if (_breakMinutes < 0 || _breakMinutes > short.MaxValue)
+        {
+            Feedback.ShowError("A szünet hossza 0 és 32767 perc közötti érték lehet.");
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            var body = new DayTypeRequest(
+                _code.Trim(),
+                _name.Trim(),
+                _isWorkday,
+                startTime,
+                endTime,
+                (short)_breakMinutes);
+
+            var isNew = !_dayTypeId.HasValue;
+            var url = isNew ? "api/day-types" : $"api/day-types/{_dayTypeId}";
+
+            using var request = new HttpRequestMessage(
+                isNew ? HttpMethod.Post : HttpMethod.Put,
+                url)
+            {
+                Content = JsonContent.Create(body, options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: isNew
+                    ? "A naptípus létrejött."
+                    : "A naptípus adatai módosultak.",
+                fallbackErrorMessage: "A naptípus mentése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            NewDayType();
+            await LoadAsync();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A naptípus mentése közben hiba történt.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void AskDelete(DayTypeItem item)
+    {
+        _deleteTarget = item;
+    }
+
+    private void CancelDelete()
+    {
+        if (!_isDeleting)
+            _deleteTarget = null;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_deleteTarget is null || _isDeleting)
+            return;
+
+        _isDeleting = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/day-types/{_deleteTarget.DayTypeId}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A naptípus törlése sikerült.",
+                fallbackErrorMessage: "A naptípus törlése sikertelen.");
+
+            if (response.IsSuccessStatusCode)
+            {
+                _deleteTarget = null;
+                await LoadAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A naptípus törlése közben hiba történt.");
+        }
+        finally
+        {
+            _isDeleting = false;
+        }
+    }
+
+    private void NewDayType()
+    {
+        _dayTypeId = null;
+        _code = string.Empty;
+        _name = string.Empty;
+        _isWorkday = false;
+        _startTime = string.Empty;
+        _endTime = string.Empty;
+        _breakMinutes = 0;
+    }
+
+    private static bool TryParseTime(string value, out TimeSpan? result)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            result = null;
+            return true;
+        }
+
+        if (TimeSpan.TryParseExact(
+                value,
+                @"hh\:mm",
+                CultureInfo.InvariantCulture,
+                out var parsed))
+        {
+            result = parsed;
+            return true;
+        }
+
+        result = null;
+        return false;
+    }
+
+    private static string FormatTime(TimeSpan? value) =>
+        value?.ToString(@"hh\:mm", CultureInfo.InvariantCulture) ?? "—";
+
+    private static string FormatTimeForInput(TimeSpan? value) =>
+        value?.ToString(@"hh\:mm", CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private sealed record DayTypeItem(
+        int DayTypeId,
+        string Code,
+        string Name,
+        bool IsWorkday,
+        TimeSpan? StartTime,
+        TimeSpan? EndTime,
+        short BreakMinutes);
+
+    private sealed record DayTypeRequest(
+        string Code,
+        string Name,
+        bool IsWorkday,
+        TimeSpan? StartTime,
+        TimeSpan? EndTime,
+        short BreakMinutes);
+}

@@ -1,0 +1,527 @@
+﻿@using System.Globalization
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.WebAssembly.Http
+@inject HttpClient Http
+
+<section class="dependents-panel">
+    <div class="dependents-toolbar">
+        <div>
+            <h3>Eltartottak adatai</h3>
+            <p>A kiválasztott dolgozóhoz rögzített gyermekek.</p>
+        </div>
+
+        <button class="dependent-primary" @onclick="OpenCreate">
+            Új eltartott
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="dependent-message error">@_error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="dependent-message success">@_success</div>
+    }
+
+    @if (_loading)
+    {
+        <div class="dependent-empty">Eltartottak betöltése…</div>
+    }
+    else if (_items.Count == 0)
+    {
+        <div class="dependent-empty">
+            Ehhez a munkavállalóhoz még nincs eltartott rögzítve.
+        </div>
+    }
+    else
+    {
+        <div class="dependent-table-wrap">
+            <table class="dependent-table">
+                <thead>
+                    <tr>
+                        <th>Név</th>
+                        <th>Születési dátum</th>
+                        <th>Adóazonosító</th>
+                        <th>Rokonsági kapcsolat</th>
+                        <th>Érvényesség</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _items)
+                    {
+                        <tr>
+                            <td>@item.LastName @item.FirstName</td>
+                            <td>@FormatDate(item.BirthDate)</td>
+                            <td>@(item.TaxId ?? "—")</td>
+                            <td>@item.RelationshipTypeName</td>
+                            <td>
+                                @FormatDate(item.ValidFrom) – @FormatDate(item.ValidTo)
+                            </td>
+                            <td class="dependent-actions">
+                                <button class="dependent-secondary"
+                                        @onclick="() => OpenEdit(item)">
+                                    Szerkesztés
+                                </button>
+                                <button class="dependent-delete"
+                                        @onclick="() => AskDelete(item)">
+                                    Törlés
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@if (_editing)
+{
+    <div class="dependent-backdrop" @onclick="CloseDialog">
+        <section class="dependent-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 @onclick:stopPropagation="true">
+            <header>
+                <div>
+                    <span class="dependent-eyebrow">ELTARTOTT KARBANTARTÁSA</span>
+                    <h3>
+                        @(_editingId.HasValue
+                            ? "Eltartott szerkesztése"
+                            : "Új eltartott felvétele")
+                    </h3>
+                </div>
+                <button class="dependent-close"
+                        @onclick="CloseDialog"
+                        aria-label="Bezárás">
+                    ×
+                </button>
+            </header>
+
+            <div class="dependent-form-grid">
+                <label>
+                    Vezetéknév
+                    <input @bind="_lastName" maxlength="100" />
+                </label>
+
+                <label>
+                    Keresztnév
+                    <input @bind="_firstName" maxlength="100" />
+                </label>
+
+                <label>
+                    Születési dátum
+                    <input type="date" @bind="_birthDate" />
+                </label>
+
+                <label>
+                    Adóazonosító
+                    <input @bind="_taxId" maxlength="30" />
+                </label>
+
+                <label>
+                    Rokonsági kapcsolat
+                    <select @bind="_relationshipTypeId">
+                        <option value="">Válassz kapcsolatot</option>
+                        @foreach (var type in _relationshipTypes)
+                        {
+                            <option value="@type.RelationshipTypeId">
+                                @type.Name
+                            </option>
+                        }
+                    </select>
+                </label>
+
+                <label>
+                    Érvényesség kezdete
+                    <input type="date" @bind="_validFrom" />
+                </label>
+
+                <label>
+                    Érvényesség vége
+                    <input type="date" @bind="_validTo" />
+                </label>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_dialogError))
+            {
+                <div class="dependent-message error">@_dialogError</div>
+            }
+
+            <footer>
+                <button class="dependent-secondary"
+                        @onclick="CloseDialog"
+                        disabled="@_busy">
+                    Mégse
+                </button>
+                <button class="dependent-primary"
+                        @onclick="SaveAsync"
+                        disabled="@_busy">
+                    @(_busy ? "Mentés…" : "Mentés")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@if (_deleteCandidate is not null)
+{
+    <div class="dependent-backdrop" @onclick="CancelDelete">
+        <section class="dependent-dialog dependent-confirm"
+                 role="dialog"
+                 aria-modal="true"
+                 @onclick:stopPropagation="true">
+            <h3>Eltartott törlése</h3>
+            <p>
+                Biztosan törlöd a(z)
+                <strong>@_deleteCandidate.LastName @_deleteCandidate.FirstName</strong>
+                dolgozóhoz tartozó hozzárendelését?
+            </p>
+            <p class="dependent-note">
+                A gyermek adatai csak akkor törlődnek, ha más dolgozóhoz sincs
+                hozzárendelve.
+            </p>
+
+            @if (!string.IsNullOrWhiteSpace(_dialogError))
+            {
+                <div class="dependent-message error">@_dialogError</div>
+            }
+
+            <footer>
+                <button class="dependent-secondary"
+                        @onclick="CancelDelete"
+                        disabled="@_busy">
+                    Mégse
+                </button>
+                <button class="dependent-delete"
+                        @onclick="DeleteAsync"
+                        disabled="@_busy">
+                    @(_busy ? "Törlés…" : "Törlés")
+                </button>
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int EmployeeId { get; set; }
+
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private List<EmployeeDependentItem> _items = [];
+    private List<RelationshipTypeItem> _relationshipTypes = [];
+    private EmployeeDependentItem? _deleteCandidate;
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _editing;
+    private int? _editingId;
+
+    private string _firstName = string.Empty;
+    private string _lastName = string.Empty;
+    private string _taxId = string.Empty;
+    private string _relationshipTypeId = string.Empty;
+
+    private DateTime? _birthDate;
+    private DateTime? _validFrom;
+    private DateTime? _validTo;
+
+    private string? _error;
+    private string? _success;
+    private string? _dialogError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            using var response = await SendAsync(
+                HttpMethod.Get,
+                $"api/employees/{EmployeeId}/dependents");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = await ReadErrorAsync(response);
+                return;
+            }
+
+            _items =
+                await response.Content.ReadFromJsonAsync<List<EmployeeDependentItem>>(
+                    JsonOptions) ?? [];
+
+            using var typesResponse = await SendAsync(
+                HttpMethod.Get,
+                $"api/employees/{EmployeeId}/dependents/relationship-types");
+
+            if (!typesResponse.IsSuccessStatusCode)
+            {
+                _error = await ReadErrorAsync(typesResponse);
+                return;
+            }
+
+            _relationshipTypes =
+                await typesResponse.Content.ReadFromJsonAsync<List<RelationshipTypeItem>>(
+                    JsonOptions) ?? [];
+        }
+        catch (Exception exception)
+        {
+            _error = $"Az eltartottak betöltése sikertelen: {exception.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenCreate()
+    {
+        _editingId = null;
+        _firstName = string.Empty;
+        _lastName = string.Empty;
+        _taxId = string.Empty;
+        _relationshipTypeId = string.Empty;
+        _birthDate = null;
+        _validFrom = null;
+        _validTo = null;
+        _dialogError = null;
+        _editing = true;
+    }
+
+    private void OpenEdit(EmployeeDependentItem item)
+    {
+        _editingId = item.EmployeeDependentId;
+        _firstName = item.FirstName;
+        _lastName = item.LastName;
+        _taxId = item.TaxId ?? string.Empty;
+        _relationshipTypeId =
+            item.RelationshipTypeId.ToString(CultureInfo.InvariantCulture);
+        _birthDate = ToDateTime(item.BirthDate);
+        _validFrom = ToDateTime(item.ValidFrom);
+        _validTo = ToDateTime(item.ValidTo);
+        _dialogError = null;
+        _editing = true;
+    }
+
+    private void CloseDialog()
+    {
+        if (!_busy)
+        {
+            _editing = false;
+            _dialogError = null;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _dialogError = null;
+
+        if (string.IsNullOrWhiteSpace(_firstName)
+            || string.IsNullOrWhiteSpace(_lastName))
+        {
+            _dialogError = "A vezetéknév és a keresztnév megadása kötelező.";
+            return;
+        }
+
+        if (!int.TryParse(
+                _relationshipTypeId,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var relationshipTypeId))
+        {
+            _dialogError = "Válassz rokonsági kapcsolatot.";
+            return;
+        }
+
+        if (_validFrom.HasValue && _validTo.HasValue
+            && _validTo.Value.Date < _validFrom.Value.Date)
+        {
+            _dialogError =
+                "Az érvényesség vége nem lehet korábbi a kezdeténél.";
+            return;
+        }
+
+        var wasEdit = _editingId.HasValue;
+        var requestBody = new SaveDependentRequest(
+            _firstName.Trim(),
+            _lastName.Trim(),
+            ToDateOnly(_birthDate),
+            string.IsNullOrWhiteSpace(_taxId) ? null : _taxId.Trim(),
+            relationshipTypeId,
+            ToDateOnly(_validFrom),
+            ToDateOnly(_validTo));
+
+        _busy = true;
+
+        try
+        {
+            var method = wasEdit ? HttpMethod.Put : HttpMethod.Post;
+            var path = wasEdit
+                ? $"api/employees/{EmployeeId}/dependents/{_editingId}"
+                : $"api/employees/{EmployeeId}/dependents";
+
+            using var response = await SendAsync(method, path, requestBody);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _dialogError = await ReadErrorAsync(response);
+                return;
+            }
+
+            _editing = false;
+            await LoadAsync();
+            _success = wasEdit
+                ? "Az eltartott adatai módosultak."
+                : "Az eltartott rögzítése sikerült.";
+        }
+        catch (Exception exception)
+        {
+            _dialogError = $"A mentés sikertelen: {exception.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void AskDelete(EmployeeDependentItem item)
+    {
+        _deleteCandidate = item;
+        _dialogError = null;
+    }
+
+    private void CancelDelete()
+    {
+        if (!_busy)
+        {
+            _deleteCandidate = null;
+            _dialogError = null;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_deleteCandidate is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _dialogError = null;
+
+        try
+        {
+            using var response = await SendAsync(
+                HttpMethod.Delete,
+                $"api/employees/{EmployeeId}/dependents/{_deleteCandidate.EmployeeDependentId}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _dialogError = await ReadErrorAsync(response);
+                return;
+            }
+
+            _deleteCandidate = null;
+            await LoadAsync();
+            _success = "Az eltartott hozzárendelését töröltük.";
+        }
+        catch (Exception exception)
+        {
+            _dialogError = $"A törlés sikertelen: {exception.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(
+        HttpMethod method,
+        string path,
+        object? body = null)
+    {
+        using var request = new HttpRequestMessage(method, path);
+
+        if (body is not null)
+        {
+            request.Content = JsonContent.Create(body, options: JsonOptions);
+        }
+
+        request.SetBrowserRequestCredentials(
+            BrowserRequestCredentials.Include);
+
+        return await Http.SendAsync(request);
+    }
+
+    private static async Task<string> ReadErrorAsync(
+        HttpResponseMessage response)
+    {
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync());
+
+            if (document.RootElement.TryGetProperty("message", out var message))
+            {
+                return message.GetString() ?? "A kérés sikertelen.";
+            }
+
+            if (document.RootElement.TryGetProperty("title", out var title))
+            {
+                return title.GetString() ?? "A kérés sikertelen.";
+            }
+        }
+        catch
+        {
+        }
+
+        return $"A kérés sikertelen (HTTP {(int)response.StatusCode}).";
+    }
+
+    private static DateTime? ToDateTime(DateOnly? date)
+        => date?.ToDateTime(TimeOnly.MinValue);
+
+    private static DateOnly? ToDateOnly(DateTime? date)
+        => date.HasValue ? DateOnly.FromDateTime(date.Value) : null;
+
+    private static string FormatDate(DateOnly? date)
+        => date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "—";
+
+    private sealed record EmployeeDependentItem(
+        int EmployeeDependentId,
+        int EmployeeId,
+        int DependentId,
+        string FirstName,
+        string LastName,
+        DateOnly? BirthDate,
+        string? TaxId,
+        int RelationshipTypeId,
+        string RelationshipTypeName,
+        DateOnly? ValidFrom,
+        DateOnly? ValidTo);
+
+    private sealed record RelationshipTypeItem(
+        int RelationshipTypeId,
+        string Name);
+
+    private sealed record SaveDependentRequest(
+        string FirstName,
+        string LastName,
+        DateOnly? BirthDate,
+        string? TaxId,
+        int RelationshipTypeId,
+        DateOnly? ValidFrom,
+        DateOnly? ValidTo);
+}

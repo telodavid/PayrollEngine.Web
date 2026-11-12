@@ -1,0 +1,128 @@
+﻿.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 900px;
+    margin: 2rem auto;
+}
+
+    .page-header h1 {
+        margin-bottom: 0.25rem;
+    }
+
+    .page-header p {
+        margin: 0;
+        color: #667085;
+    }
+
+.app-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.app-button {
+    min-height: 72px;
+    padding: 1rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: white;
+    color: #101828;
+    font-size: 1rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+    .app-button:hover {
+        border-color: #2970ff;
+        background: #f5f8ff;
+    }
+
+.logout-button {
+    padding: 0.6rem 1rem;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+}
+.app-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgb(16 24 40 / 55%);
+}
+
+.app-menu-dialog {
+    width: min(100%, 560px);
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 1.5rem;
+    border: 1px solid #eaecf0;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 24px 64px rgb(16 24 40 / 24%);
+}
+
+.app-menu-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1.25rem;
+}
+
+    .app-menu-header h2 {
+        margin: 0 0 0.4rem;
+        color: #101828;
+        font-size: 1.35rem;
+    }
+
+    .app-menu-header p {
+        margin: 0;
+        color: #667085;
+    }
+
+.app-menu-close {
+    flex: 0 0 auto;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 0;
+    border-radius: 8px;
+    background: #f2f4f7;
+    color: #344054;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.app-menu-options {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.app-menu-option {
+    width: 100%;
+    padding: 1rem 1.1rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: #fff;
+    color: #101828;
+    text-align: left;
+    cursor: pointer;
+}
+
+    .app-menu-option:hover,
+    .app-menu-option:focus-visible {
+        border-color: #2970ff;
+        background: #f5f8ff;
+    }
+
+.app-menu-option-title {
+    font-size: 1rem;
+    font-weight: 650;
+}

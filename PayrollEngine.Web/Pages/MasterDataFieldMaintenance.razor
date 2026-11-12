@@ -1,0 +1,886 @@
+﻿@page "/masterdata-types/fields"
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>@GetPageTitle()</PageTitle>
+
+<main class="masterdata-field-page">
+    <header class="masterdata-field-header">
+        <button type="button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <h1>@GetPageTitle()</h1>
+    </header>
+
+    @if (_isPayrollElementScope && _payrollElementGroupMissing)
+    {
+        <section class="masterdata-field-card">
+            <h2>Nincs bérelemekhez tartozó csoport</h2>
+            <p>A törzsadatcsoport-karbantartóban hozz létre bérelemcsoportot. A csoport kódja PAYROLLELEMENT_ előtaggal kezdődjön, például: PAYROLLELEMENT_BERADAT.</p>
+        </section>
+    }
+    else
+    {
+        <section class="masterdata-field-card">
+            <h2>Tulajdonságok</h2>
+
+            <div class="masterdata-field-filters">
+                <input @bind="_search"
+                       @bind:event="oninput"
+                       placeholder="Keresés kód vagy megnevezés alapján" />
+
+                <select @bind="_filterGroupId">
+                    <option value="">@(_isPayrollElementScope ? "Minden bérelemcsoport" : "Minden csoport")</option>
+                    @foreach (var group in _groups)
+                    {
+                        <option value="@group.MasterDataGroupId">@group.Name</option>
+                    }
+                </select>
+
+                <select @bind="_filterTypeId">
+                    <option value="">Minden adattípus</option>
+                    @foreach (var type in _fieldTypes)
+                    {
+                        <option value="@type.FieldTypeId">@type.Name</option>
+                    }
+                </select>
+
+                <select @bind="_filterActive">
+                    <option value="">Minden állapot</option>
+                    <option value="true">Aktív</option>
+                    <option value="false">Inaktív</option>
+                </select>
+
+                <button type="button" @onclick="LoadFieldsAsync" disabled="@_isLoading">
+                    @(_isLoading ? "Betöltés…" : "Keresés")
+                </button>
+            </div>
+
+            @if (_isLoading && _fields.Count == 0)
+            {
+                <p>A mezők betöltése…</p>
+            }
+            else if (_fields.Count == 0)
+            {
+                <p>Nem található mező.</p>
+            }
+            else
+            {
+                <div class="masterdata-field-table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Csoport</th>
+                                <th>Kód</th>
+                                <th>Megnevezés</th>
+                                <th>Adattípus</th>
+                                <th>Kötelező</th>
+                                <th>Egyedi</th>
+                                <th>Aktív</th>
+                                <th>Művelet</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var field in _fields)
+                            {
+                                <tr @key="field.FieldId">
+                                    <td>@field.MasterDataGroupName</td>
+                                    <td>@GetDisplayedFieldCode(field.Code)</td>
+                                    <td>@field.DisplayName</td>
+                                    <td>@field.FieldTypeName</td>
+                                    <td>@(field.IsRequired ? "Igen" : "Nem")</td>
+                                    <td>@(field.IsUnique ? "Igen" : "Nem")</td>
+                                    <td>@(field.IsActive ? "Igen" : "Nem")</td>
+                                    <td>
+                                        <div class="masterdata-field-row-actions">
+                                            <button type="button"
+                                                    @onclick="async () => await EditFieldAsync(field.FieldId)"
+                                                    disabled="@_isLoading">
+                                                Szerkesztés
+                                            </button>
+
+                                            @if (string.Equals(
+                                                field.FieldTypeCode,
+                                                "LIST",
+                                                StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <button type="button"
+                                                        @onclick="() => OpenOptionsModalAsync(field.FieldId, field.DisplayName)"
+                                                        disabled="@_isOptionsLoading">
+                                                    Listaértékek kezelése
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="masterdata-field-card">
+            <h2>@(_fieldId.HasValue ? "Mező módosítása" : "Új mező")</h2>
+
+            @if (_groups.Count == 0 || _fieldTypes.Count == 0)
+            {
+                <p>A mező felvételéhez előbb csoportoknak és adattípusoknak kell rendelkezésre állniuk.</p>
+            }
+            else
+            {
+                <div class="masterdata-field-form">
+                    <label>
+                        @(_isPayrollElementScope ? "Bérelemcsoport *" : "Törzsadatcsoport *")
+                        <select @bind="_groupId">
+                            <option value="0">Válassz csoportot</option>
+                            @foreach (var group in _groups)
+                            {
+                                <option value="@group.MasterDataGroupId">@group.Name</option>
+                            }
+                        </select>
+                    </label>
+
+                    <label>
+                        Mezőkód *
+                        @if (_isPayrollElementScope)
+                        {
+                            <span>PAYROLLELEMENT_</span>
+                        }
+                        <input @bind="_code" maxlength="50" />
+                    </label>
+
+                    <label>
+                        Megjelenített név *
+                        <input @bind="_displayName" maxlength="100" />
+                    </label>
+
+                    <label>
+                        Adattípus *
+                        <select @bind="_fieldTypeId">
+                            <option value="0">Válassz adattípust</option>
+                            @foreach (var type in _fieldTypes)
+                            {
+                                <option value="@type.FieldTypeId">@type.Name</option>
+                            }
+                        </select>
+                    </label>
+
+                    <label>
+                        Megjelenítési sorrend
+                        <input type="number" min="0" @bind="_displayOrder" />
+                    </label>
+
+                    <label class="masterdata-field-checkbox">
+                        <input type="checkbox" @bind="_isRequired" />
+                        Kötelező mező
+                    </label>
+
+                    <label class="masterdata-field-checkbox">
+                        <input type="checkbox" @bind="_isUnique" />
+                        Egyedi érték
+                    </label>
+
+                    @if (_fieldId.HasValue)
+                    {
+                        <label class="masterdata-field-checkbox">
+                            <input type="checkbox" @bind="_isActive" />
+                            Aktív
+                        </label>
+                    }
+                </div>
+
+                <div class="masterdata-field-actions">
+                    @if (_fieldId.HasValue)
+                    {
+                        <button type="button" @onclick="NewField" disabled="@_isSaving">
+                            Új mező
+                        </button>
+                    }
+
+                    <button type="button"
+                            class="masterdata-field-save"
+                            @onclick="SaveFieldAsync"
+                            disabled="@_isSaving">
+                        @(_isSaving
+                            ? "Mentés…"
+                            : _fieldId.HasValue
+                                ? "Módosítások mentése"
+                                : "Mező létrehozása")
+                    </button>
+                </div>
+            }
+        </section>
+    }
+    @if (_isOptionsModalOpen)
+    {
+        <div class="masterdata-field-modal-backdrop">
+            <section class="masterdata-field-modal">
+                <header>
+                    <h2>Listaértékek – @_optionsFieldName</h2>
+                    <button type="button" @onclick="CloseOptionsModal">Bezárás</button>
+                </header>
+
+                @if (_isOptionsLoading)
+                {
+                    <p>Listaértékek betöltése…</p>
+                }
+                else if (_fieldOptions.Count == 0)
+                {
+                    <p>Még nincs felvitt listaérték.</p>
+                }
+                else
+                {
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Kód</th>
+                                <th>Megnevezés</th>
+                                <th>Sorrend</th>
+                                <th>Aktív</th>
+                                <th>Művelet</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var option in _fieldOptions)
+                            {
+                                <tr @key="option.OptionId">
+                                    <td>@option.OptionCode</td>
+                                    <td>@option.DisplayName</td>
+                                    <td>@option.SortOrder</td>
+                                    <td>@(option.IsActive ? "Igen" : "Nem")</td>
+                                    <td>
+                                        <button type="button"
+                                                @onclick="() => EditOption(option)">
+                                            Szerkesztés
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                <h3>@(_optionId.HasValue ? "Listaérték módosítása" : "Új listaérték")</h3>
+
+                <div class="masterdata-field-form">
+                    <label>
+                        Kód *
+                        <input @bind="_optionCode" maxlength="50" />
+                    </label>
+
+                    <label>
+                        Megnevezés *
+                        <input @bind="_optionDisplayName" maxlength="100" />
+                    </label>
+
+                    <label>
+                        Megjelenítési sorrend
+                        <input type="number" min="0" @bind="_optionSortOrder" />
+                    </label>
+
+                    @if (_optionId.HasValue)
+                    {
+                        <label class="masterdata-field-checkbox">
+                            <input type="checkbox" @bind="_optionIsActive" />
+                            Aktív
+                        </label>
+                    }
+                </div>
+
+                <div class="masterdata-field-actions">
+                    @if (_optionId.HasValue)
+                    {
+                        <button type="button" @onclick="NewOption">
+                            Új listaérték
+                        </button>
+                    }
+
+                    <button type="button"
+                            class="masterdata-field-save"
+                            @onclick="SaveOptionAsync"
+                            disabled="@_isOptionSaving">
+                        @(_isOptionSaving ? "Mentés…" : "Listaérték mentése")
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private const string PayrollElementPrefix = "PAYROLLELEMENT_";
+
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private string _search = string.Empty;
+    private string _filterGroupId = string.Empty;
+    private string _filterTypeId = string.Empty;
+    private string _filterActive = string.Empty;
+
+    private int? _fieldId;
+    private int _groupId;
+    private int _fieldTypeId;
+    private int _displayOrder;
+    private string _code = string.Empty;
+    private string _displayName = string.Empty;
+    private bool _isRequired;
+    private bool _isUnique;
+    private bool _isActive = true;
+
+    private bool _isLoading;
+    private bool _isSaving;
+
+    [Parameter]
+    public bool PayrollElementScope { get; set; }
+
+    private bool _isPayrollElementScope;
+    private bool _payrollElementGroupMissing;
+    private bool _isOptionsModalOpen;
+    private bool _isOptionsLoading;
+    private bool _isOptionSaving;
+    private int? _optionId;
+    private int _optionsFieldId;
+    private int _optionSortOrder;
+    private bool _optionIsActive = true;
+    private string _optionsFieldName = string.Empty;
+    private string _optionCode = string.Empty;
+    private string _optionDisplayName = string.Empty;
+
+    private List<FieldOptionItem> _fieldOptions = [];
+
+    private List<GroupItem> _groups = [];
+    private List<FieldTypeItem> _fieldTypes = [];
+    private List<FieldItem> _fields = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isPayrollElementScope = PayrollElementScope;
+
+        await LoadLookupsAsync();
+
+        if (_isPayrollElementScope)
+        {
+            _groups = _groups
+                .Where(group => HasPayrollElementPrefix(group.Code))
+                .ToList();
+
+            if (_groups.Count == 0)
+            {
+                _payrollElementGroupMissing = true;
+                return;
+            }
+
+            _groupId = _groups[0].MasterDataGroupId;
+            _filterGroupId = string.Empty;
+        }
+        else
+        {
+            // A normál törzsadat-kezelő ne kínálja fel a bérelemhez fenntartott csoportokat.
+            _groups = _groups
+                .Where(group => !HasPayrollElementPrefix(group.Code))
+                .ToList();
+        }
+
+        await LoadFieldsAsync();
+        NewField();
+    }
+
+    private async Task LoadLookupsAsync()
+    {
+        try
+        {
+            using var groupsRequest =
+                new HttpRequestMessage(HttpMethod.Get, "api/master-data-groups");
+            using var groupsResponse = await Api.SendAsync(
+                groupsRequest,
+                fallbackErrorMessage: "A törzsadatcsoportok betöltése sikertelen.");
+
+            if (groupsResponse.IsSuccessStatusCode)
+            {
+                _groups =
+                    await groupsResponse.Content.ReadFromJsonAsync<List<GroupItem>>(JsonOptions) ?? [];
+            }
+
+            using var typesRequest =
+                new HttpRequestMessage(HttpMethod.Get, "api/master-data-field-types");
+            using var typesResponse = await Api.SendAsync(
+                typesRequest,
+                fallbackErrorMessage: "A mezőtípusok betöltése sikertelen.");
+
+            if (typesResponse.IsSuccessStatusCode)
+            {
+                _fieldTypes =
+                    await typesResponse.Content.ReadFromJsonAsync<List<FieldTypeItem>>(JsonOptions) ?? [];
+            }
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A választólisták betöltése közben hiba történt.");
+        }
+    }
+
+    private async Task LoadFieldsAsync()
+    {
+        if (_isLoading)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            var query = new List<string>();
+
+            if (int.TryParse(_filterGroupId, out var groupId))
+                query.Add($"masterDataGroupId={groupId}");
+
+            if (int.TryParse(_filterTypeId, out var typeId))
+                query.Add($"fieldTypeId={typeId}");
+
+            if (!string.IsNullOrWhiteSpace(_filterActive))
+                query.Add($"isActive={_filterActive}");
+
+            if (!string.IsNullOrWhiteSpace(_search))
+                query.Add($"search={Uri.EscapeDataString(_search.Trim())}");
+
+            var url = query.Count == 0
+                ? "api/master-data-fields"
+                : $"api/master-data-fields?{string.Join("&", query)}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A mezők betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _fields = [];
+                return;
+            }
+
+            var loadedFields =
+                await response.Content.ReadFromJsonAsync<List<FieldItem>>(JsonOptions) ?? [];
+
+            // A két előtag együtt választja szét a bérelem-tulajdonságokat:
+            // a mezőkód és a mező csoportkódja is PAYROLLELEMENT_ előtagú legyen.
+            _fields = loadedFields
+                .Where(field => _isPayrollElementScope
+                    ? HasPayrollElementPrefix(field.Code) && HasPayrollElementPrefix(field.MasterDataGroupCode)
+                    : !HasPayrollElementPrefix(field.Code) && !HasPayrollElementPrefix(field.MasterDataGroupCode))
+                .ToList();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A mezők betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task EditFieldAsync(int id)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/master-data-fields/{id}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A mező adatainak betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var field = await response.Content.ReadFromJsonAsync<FieldItem>(JsonOptions);
+
+            if (field is null)
+            {
+                Feedback.ShowError("A mező adatai nem olvashatók.");
+                return;
+            }
+
+            _fieldId = field.FieldId;
+            _groupId = field.MasterDataGroupId;
+            _code = GetEditableFieldCode(field.Code);
+            _displayName = field.DisplayName;
+            _fieldTypeId = field.FieldTypeId;
+            _isRequired = field.IsRequired;
+            _isUnique = field.IsUnique;
+            _displayOrder = field.DisplayOrder;
+            _isActive = field.IsActive;
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A mező adatainak betöltése közben hiba történt.");
+        }
+    }
+
+    private async Task SaveFieldAsync()
+    {
+        if (_isSaving)
+            return;
+
+        if (_groupId <= 0 || _fieldTypeId <= 0 ||
+            string.IsNullOrWhiteSpace(_code) ||
+            string.IsNullOrWhiteSpace(_displayName))
+        {
+            Feedback.ShowError("A csoport, a mezőkód, a megjelenített név és az adattípus megadása kötelező.");
+            return;
+        }
+
+        var selectedGroup = _groups.FirstOrDefault(group => group.MasterDataGroupId == _groupId);
+        if (selectedGroup is null || _isPayrollElementScope != HasPayrollElementPrefix(selectedGroup.Code))
+        {
+            Feedback.ShowError(_isPayrollElementScope
+                ? "A bérelem-tulajdonsághoz PAYROLLELEMENT_ előtagú csoportot válassz."
+                : "A PAYROLLELEMENT_ előtagú csoportot a Bérelem-tulajdonságok felületen kezeld.");
+            return;
+        }
+
+        var fieldCode = _code.Trim();
+        if (_isPayrollElementScope && !HasPayrollElementPrefix(fieldCode))
+            fieldCode = PayrollElementPrefix + fieldCode;
+
+        if (_displayOrder < 0)
+        {
+            Feedback.ShowError("A megjelenítési sorrend nem lehet negatív.");
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            HttpRequestMessage request;
+
+            if (_fieldId.HasValue)
+            {
+                var body = new UpdateFieldRequest(
+                    _groupId,
+                    fieldCode,
+                    _displayName.Trim(),
+                    _fieldTypeId,
+                    _isRequired,
+                    _isUnique,
+                    _displayOrder,
+                    _isActive);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Put,
+                    $"api/master-data-fields/{_fieldId}")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+            else
+            {
+                var body = new CreateFieldRequest(
+                    _groupId,
+                    fieldCode,
+                    _displayName.Trim(),
+                    _fieldTypeId,
+                    _isRequired,
+                    _isUnique,
+                    _displayOrder);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    "api/master-data-fields")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+
+            using (request)
+            using (var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: _fieldId.HasValue
+                    ? "A mező adatai módosultak."
+                    : "A mező létrejött.",
+                fallbackErrorMessage: "A mező mentése sikertelen."))
+            {
+                if (!response.IsSuccessStatusCode)
+                    return;
+            }
+
+            NewField();
+            await LoadFieldsAsync();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A mező mentése közben hiba történt.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task OpenOptionsModalAsync(int fieldId, string fieldName)
+    {
+        _optionsFieldId = fieldId;
+        _optionsFieldName = fieldName;
+        _isOptionsModalOpen = true;
+        NewOption();
+
+        await LoadOptionsAsync();
+    }
+
+    private void CloseOptionsModal()
+    {
+        _isOptionsModalOpen = false;
+        _fieldOptions = [];
+        NewOption();
+    }
+
+    private async Task LoadOptionsAsync()
+    {
+        _isOptionsLoading = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/master-data-fields/{_optionsFieldId}/options");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A listaértékek betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _fieldOptions = [];
+                return;
+            }
+
+            _fieldOptions =
+                await response.Content.ReadFromJsonAsync<List<FieldOptionItem>>(JsonOptions) ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A listaértékek betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isOptionsLoading = false;
+        }
+    }
+
+    private void EditOption(FieldOptionItem option)
+    {
+        _optionId = option.OptionId;
+        _optionCode = option.OptionCode;
+        _optionDisplayName = option.DisplayName;
+        _optionSortOrder = option.SortOrder;
+        _optionIsActive = option.IsActive;
+    }
+
+    private void NewOption()
+    {
+        _optionId = null;
+        _optionCode = string.Empty;
+        _optionDisplayName = string.Empty;
+        _optionSortOrder = 0;
+        _optionIsActive = true;
+    }
+
+    private async Task SaveOptionAsync()
+    {
+        if (_isOptionSaving)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_optionCode) ||
+            string.IsNullOrWhiteSpace(_optionDisplayName))
+        {
+            Feedback.ShowError("A listaérték kódja és megnevezése kötelező.");
+            return;
+        }
+
+        if (_optionSortOrder < 0)
+        {
+            Feedback.ShowError("A megjelenítési sorrend nem lehet negatív.");
+            return;
+        }
+
+        _isOptionSaving = true;
+
+        try
+        {
+            HttpRequestMessage request;
+
+            if (_optionId.HasValue)
+            {
+                var body = new UpdateOptionRequest(
+                    _optionCode.Trim(),
+                    _optionDisplayName.Trim(),
+                    _optionSortOrder,
+                    _optionIsActive);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Put,
+                    $"api/master-data-field-options/{_optionId}")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+            else
+            {
+                var body = new CreateOptionRequest(
+                    _optionCode.Trim(),
+                    _optionDisplayName.Trim(),
+                    _optionSortOrder);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"api/master-data-fields/{_optionsFieldId}/options")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+
+            using (request)
+            using (var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A listaérték mentése sikertelen."))
+            {
+                if (!response.IsSuccessStatusCode)
+                    return;
+            }
+
+            NewOption();
+            await LoadOptionsAsync();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A listaérték mentése közben hiba történt.");
+        }
+        finally
+        {
+            _isOptionSaving = false;
+        }
+    }
+
+    private void NewField()
+    {
+        _fieldId = null;
+        _groupId = _groups.FirstOrDefault()?.MasterDataGroupId ?? 0;
+        _fieldTypeId = _fieldTypes.FirstOrDefault()?.FieldTypeId ?? 0;
+        _code = string.Empty;
+        _displayName = string.Empty;
+        _isRequired = false;
+        _isUnique = false;
+        _displayOrder = 0;
+        _isActive = true;
+    }
+
+    private string GetPageTitle() => _isPayrollElementScope
+        ? "Bérelem-tulajdonságok"
+        : "Törzsadat-típusok karbantartása";
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private static bool HasPayrollElementPrefix(string? code) =>
+        code?.StartsWith(PayrollElementPrefix, StringComparison.OrdinalIgnoreCase) == true;
+
+    private string GetDisplayedFieldCode(string code) =>
+        _isPayrollElementScope ? GetEditableFieldCode(code) : code;
+
+    private string GetEditableFieldCode(string code) =>
+        HasPayrollElementPrefix(code)
+            ? code[PayrollElementPrefix.Length..]
+            : code;
+
+    private sealed record GroupItem(
+        int MasterDataGroupId,
+        string Code,
+        string Name);
+
+    private sealed record FieldTypeItem(
+        int FieldTypeId,
+        string Code,
+        string Name);
+
+    private sealed record FieldItem(
+        int FieldId,
+        int MasterDataGroupId,
+        string MasterDataGroupCode,
+        string MasterDataGroupName,
+        string Code,
+        string DisplayName,
+        int FieldTypeId,
+        string FieldTypeCode,
+        string FieldTypeName,
+        bool IsRequired,
+        bool IsUnique,
+        int DisplayOrder,
+        bool IsActive);
+
+    private sealed record CreateFieldRequest(
+        int MasterDataGroupId,
+        string Code,
+        string DisplayName,
+        int FieldTypeId,
+        bool IsRequired,
+        bool IsUnique,
+        int DisplayOrder);
+
+    private sealed record UpdateFieldRequest(
+        int MasterDataGroupId,
+        string Code,
+        string DisplayName,
+        int FieldTypeId,
+        bool IsRequired,
+        bool IsUnique,
+        int DisplayOrder,
+        bool IsActive);
+
+    private sealed record FieldOptionItem(
+        int OptionId,
+        int FieldId,
+        string OptionCode,
+        string DisplayName,
+        int SortOrder,
+        bool IsActive);
+
+    private sealed record CreateOptionRequest(
+        string OptionCode,
+        string DisplayName,
+        int SortOrder);
+
+    private sealed record UpdateOptionRequest(
+        string OptionCode,
+        string DisplayName,
+        int SortOrder,
+        bool IsActive);
+}

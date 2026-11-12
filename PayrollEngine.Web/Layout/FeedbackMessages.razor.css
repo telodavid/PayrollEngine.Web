@@ -1,0 +1,105 @@
+﻿.feedback-success {
+    position: fixed;
+    z-index: 1100;
+    left: 50%;
+    bottom: 1.25rem;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+    max-width: min(48rem, calc(100vw - 2rem));
+    padding: .9rem 1.15rem;
+    border: 1px solid #86c99a;
+    border-radius: .75rem;
+    background: #eaf7ed;
+    color: #14532d;
+    box-shadow: 0 .6rem 1.8rem rgb(0 0 0 / 16%);
+    font-weight: 600;
+}
+
+.feedback-success-icon, .feedback-error-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 1.7rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    color: #fff;
+    font-weight: 800;
+}
+
+.feedback-success-icon {
+    background: #198754;
+}
+
+.feedback-success button {
+    margin-left: .25rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+.feedback-backdrop {
+    position: fixed;
+    z-index: 1200;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgb(20 26 31 / 45%);
+}
+
+.feedback-dialog {
+    width: min(30rem, 100%);
+    padding: 1.5rem;
+    border: 1px solid #f2a6a6;
+    border-top: .35rem solid #c62828;
+    border-radius: .85rem;
+    background: #fff;
+    color: #7f1d1d;
+    box-shadow: 0 1rem 3rem rgb(0 0 0 / 25%);
+}
+
+.feedback-dialog-heading {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+}
+
+    .feedback-dialog-heading h2 {
+        margin: 0;
+        color: #991b1b;
+        font-size: 1.2rem;
+    }
+
+.feedback-error-icon {
+    background: #c62828;
+}
+
+.feedback-dialog p {
+    margin: 1rem 0 1.25rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.feedback-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+    .feedback-dialog-actions button {
+        padding: .6rem 1rem;
+        border: 0;
+        border-radius: .5rem;
+        background: #b42318;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+        .feedback-dialog-actions button:hover {
+            background: #8f1c13;
+        }

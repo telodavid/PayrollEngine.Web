@@ -1,0 +1,119 @@
+﻿@page "/login"
+@using System.Net.Http.Json
+@using PayrollEngine.Web.Models
+@using PayrollEngine.Web.Services
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject LoginSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Bejelentkezés</PageTitle>
+
+<main class="login-page">
+    <section class="login-card" aria-labelledby="login-title">
+
+        <p class="login-eyebrow">PayrollEngine</p>
+        <h1 id="login-title">Bejelentkezés</h1>
+        <p class="login-description">
+            Jelentkezz be a rendszer használatához.
+        </p>
+
+        <form class="login-form"
+              @onsubmit="LoginAsync"
+              @onsubmit:preventDefault>
+            <div class="login-field">
+                <label for="userName">Felhasználónév</label>
+                <input id="userName"
+                       @bind="request.UserName"
+                       autocomplete="username"
+                       placeholder="Add meg a felhasználóneved"
+                       required />
+            </div>
+
+            <div class="login-field">
+                <label for="password">Jelszó</label>
+                <input id="password"
+                       type="password"
+                       @bind="request.Password"
+                       autocomplete="current-password"
+                       placeholder="Add meg a jelszavad"
+                       required />
+            </div>
+
+            <button class="login-submit"
+                    type="submit"
+                    disabled="@isBusy">
+                @(isBusy ? "Bejelentkezés…" : "Bejelentkezés")
+                @if (!isBusy)
+                {
+                    <span aria-hidden="true">→</span>
+                }
+            </button>
+        </form>
+
+        <button class="login-home-link"
+                type="button"
+                @onclick="GoHome">
+            Vissza a kezdőlapra
+        </button>
+    </section>
+</main>
+
+@code {
+    private readonly LoginRequest request = new();
+    private bool isBusy;
+
+    private async Task LoginAsync()
+    {
+        Feedback.DismissError();
+        isBusy = true;
+
+        try
+        {
+            using var httpRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                "api/login")
+            {
+                Content = JsonContent.Create(request)
+            };
+
+            using var response = await Api.SendAsync(
+                httpRequest,
+                fallbackErrorMessage: "Hibás felhasználónév vagy jelszó.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var result = await response.Content
+                .ReadFromJsonAsync<LoginResponse>();
+
+            if (result is null)
+            {
+                Feedback.ShowError("A backend üres választ küldött.");
+                return;
+            }
+
+            Session.SetUser(result);
+            Navigation.NavigateTo("/apps");
+        }
+        catch (HttpRequestException)
+        {
+            // A FeedbackHttpClient már megjeleníti a hálózati hibát.
+        }
+        catch
+        {
+            Feedback.ShowError("A bejelentkezés feldolgozása sikertelen.");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void GoHome()
+    {
+        Navigation.NavigateTo("/");
+    }
+}

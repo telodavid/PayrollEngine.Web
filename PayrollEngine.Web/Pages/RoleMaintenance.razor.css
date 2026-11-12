@@ -1,0 +1,286 @@
+﻿.role-maintenance-page {
+    width: min(1500px, calc(100% - 40px));
+    margin: 24px auto;
+    color: #172033;
+}
+
+.role-maintenance-header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+    .role-maintenance-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+    }
+
+.role-maintenance-page button,
+.role-maintenance-page input,
+.role-maintenance-page select {
+    font: inherit;
+}
+
+.role-maintenance-secondary {
+    padding: 9px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #172033;
+    cursor: pointer;
+}
+
+    .role-maintenance-secondary:hover {
+        border-color: #315eea;
+        color: #234bd0;
+    }
+
+.role-maintenance-card {
+    margin-bottom: 18px;
+    padding: 20px;
+    border: 1px solid #d5dbe6;
+    border-radius: 12px;
+    background: #fff;
+}
+
+    .role-maintenance-card h2 {
+        margin: 0 0 16px;
+        font-size: 1.15rem;
+    }
+
+.role-maintenance-table-wrap {
+    overflow-x: auto;
+}
+
+.role-maintenance-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .role-maintenance-table th,
+    .role-maintenance-table td {
+        padding: 12px;
+        border-bottom: 1px solid #e5e9f0;
+        text-align: left;
+    }
+
+    .role-maintenance-table th {
+        font-weight: 700;
+    }
+
+.role-maintenance-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+    .role-maintenance-row-actions .role-maintenance-secondary {
+        white-space: nowrap;
+    }
+
+.role-maintenance-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+    .role-maintenance-form label {
+        display: grid;
+        gap: 7px;
+        font-weight: 600;
+    }
+
+        .role-maintenance-form label span {
+            color: #c62828;
+        }
+
+    .role-maintenance-form input:not([type="checkbox"]) {
+        width: 100%;
+        min-height: 42px;
+        padding: 9px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+    .role-maintenance-form .role-maintenance-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        align-self: end;
+        min-height: 42px;
+    }
+
+.role-maintenance-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.role-maintenance-save {
+    padding: 10px 16px;
+    border: 0;
+    border-radius: 8px;
+    background: #315eea;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.role-maintenance-page button:disabled {
+    cursor: not-allowed;
+    opacity: .6;
+}
+
+.role-maintenance-muted {
+    color: #667085;
+}
+
+.role-maintenance-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgb(15 23 42 / 55%);
+}
+
+.role-maintenance-modal {
+    width: min(980px, calc(100vw - 48px));
+    max-height: calc(100vh - 40px);
+    overflow: auto;
+    padding: 24px;
+    border: 1px solid #d5dbe6;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 20px 50px rgb(15 23 42 / 22%);
+}
+
+.role-maintenance-mdg-modal {
+    width: min(1120px, calc(100vw - 48px));
+}
+
+.role-maintenance-modal header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.role-maintenance-modal h2,
+.role-maintenance-modal h3,
+.role-maintenance-modal p {
+    margin-top: 0;
+}
+
+.role-maintenance-modal h2 {
+    margin-bottom: 6px;
+}
+
+.role-maintenance-modal h3 {
+    margin-bottom: 12px;
+    font-size: 1rem;
+}
+
+.role-maintenance-modal header p {
+    margin-bottom: 0;
+    color: #667085;
+}
+
+.role-maintenance-close {
+    flex: 0 0 auto;
+    width: 42px;
+    height: 42px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #172033;
+    font: inherit;
+    font-size: 1.3rem;
+    cursor: pointer;
+}
+
+    .role-maintenance-close:hover {
+        border-color: #315eea;
+    }
+
+.role-maintenance-modal-section {
+    margin-top: 24px;
+}
+
+.role-maintenance-assign-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 12px;
+}
+
+    .role-maintenance-assign-form label {
+        display: grid;
+        gap: 7px;
+        font-weight: 600;
+    }
+
+    .role-maintenance-assign-form select {
+        width: 100%;
+        min-height: 42px;
+        padding: 9px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+.role-maintenance-delete {
+    padding: 8px 12px;
+    border: 1px solid #e2a5a5;
+    border-radius: 8px;
+    background: #fff;
+    color: #a32222;
+    font: inherit;
+    cursor: pointer;
+}
+
+    .role-maintenance-delete:hover {
+        border-color: #b42318;
+        background: #fff5f5;
+    }
+
+.role-maintenance-mdg-table input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #315eea;
+}
+
+.role-maintenance-small-save {
+    padding: 8px 12px;
+    white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+    .role-maintenance-page {
+        width: calc(100% - 24px);
+    }
+
+    .role-maintenance-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .role-maintenance-form {
+        grid-template-columns: 1fr;
+    }
+
+    .role-maintenance-modal,
+    .role-maintenance-mdg-modal {
+        width: calc(100vw - 24px);
+        padding: 18px;
+    }
+
+    .role-maintenance-assign-form {
+        grid-template-columns: 1fr;
+    }
+}

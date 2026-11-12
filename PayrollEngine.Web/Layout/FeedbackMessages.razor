@@ -1,0 +1,38 @@
+﻿@using PayrollEngine.Web.Services
+@implements IDisposable
+@inject FeedbackService Feedback
+
+@if (!string.IsNullOrWhiteSpace(Feedback.SuccessMessage))
+{
+    <div class="feedback-success" role="status" aria-live="polite">
+        <span class="feedback-success-icon" aria-hidden="true">✓</span>
+        <span>@Feedback.SuccessMessage</span>
+        <button type="button" aria-label="Üzenet bezárása" @onclick="Feedback.DismissSuccess">×</button>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(Feedback.ErrorMessage))
+{
+    <div class="feedback-backdrop" @onclick="Feedback.DismissError">
+        <section class="feedback-dialog"
+                 role="alertdialog"
+                 aria-modal="true"
+                 aria-labelledby="feedback-title"
+                 @onclick:stopPropagation="true">
+            <div class="feedback-dialog-heading">
+                <span class="feedback-error-icon" aria-hidden="true">!</span>
+                <h2 id="feedback-title">Hiba történt</h2>
+            </div>
+            <p>@Feedback.ErrorMessage</p>
+            <div class="feedback-dialog-actions">
+                <button type="button" @onclick="Feedback.DismissError">Rendben</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Feedback.Changed += OnFeedbackChanged;
+    private void OnFeedbackChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Feedback.Changed -= OnFeedbackChanged;
+}

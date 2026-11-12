@@ -1,0 +1,692 @@
+﻿@namespace PayrollEngine.Web.Components.Reports
+@using System.Globalization
+@using System.Text.Json
+@using PayrollEngine.Web.Models
+@using PayrollEngine.Web.Services
+@inject FeedbackService Feedback
+
+<section class="report-section">
+    <div class="report-section-heading">
+        <div>
+            <h3>@Title</h3>
+            <p>A feltételek együttesen érvényesülnek.</p>
+        </div>
+
+        <button type="button"
+                class="report-secondary"
+                @onclick="AddFilterAsync"
+                disabled="@Disabled">
+            + Feltétel hozzáadása
+        </button>
+    </div>
+
+    @if (Filters.Count == 0)
+    {
+        <p class="report-muted">
+            Nincs külön szűrőfeltétel.
+        </p>
+    }
+
+    @for (var index = 0; index < Filters.Count; index++)
+    {
+        var filterIndex = index;
+        var filter = Filters[index];
+        var listId = $"{_editorId}-{filterIndex}";
+
+        <div class="report-field-card report-spaced" @key="filter">
+            <div class="report-field-title">
+                <strong>@(filterIndex + 1). feltétel</strong>
+
+                <button type="button"
+                        class="report-danger report-small-button"
+                        @onclick="() => RemoveFilterAsync(filter)"
+                        disabled="@Disabled">
+                    Eltávolítás
+                </button>
+            </div>
+
+            <div class="report-field-grid">
+                <label class="report-reference-field">
+                    Vizsgált mező *
+                    <input type="text"
+                           list="@listId"
+                           value="@ReferenceText(filter)"
+                           @oninput="args => ChangeFieldAsync(filter, args)"
+                           autocomplete="off"
+                           placeholder="Kezdj gépelni, majd válassz mezőt"
+                           disabled="@Disabled" />
+
+                    <datalist id="@listId">
+                        @foreach (var item in AvailableFields)
+                        {
+                            <option value="@OptionLabel(item)"></option>
+                        }
+                    </datalist>
+                </label>
+
+                <label>
+                    Feltétel
+                    <select value="@filter.Operator"
+                            @onchange="args => ChangeOperatorAsync(filter, args)"
+                            disabled="@Disabled">
+                        @foreach (var operation in Operations)
+                        {
+                            <option value="@operation.Code">
+                                @operation.Label
+                            </option>
+                        }
+                    </select>
+                </label>
+
+                @if (!IsNullOperation(filter.Operator))
+                {
+                    @if (!string.IsNullOrWhiteSpace(filter.Parameter))
+                    {
+                        <label class="report-reference-field">
+                            Futási paraméter
+                            <input value="@filter.Parameter"
+                                   readonly />
+                        </label>
+
+                        <button type="button"
+                                class="report-secondary"
+                                @onclick="() => UseConstantAsync(filter)"
+                                disabled="@Disabled">
+                            Megadott érték használata
+                        </button>
+                    }
+                    else
+                    {
+                        <label class="report-reference-field">
+                            Érték *
+                            @if (Same(DataType(filter), "boolean") &&
+                                 !IsListOperation(filter.Operator))
+                            {
+                                <select value="@ValueText(filter)"
+                                        @onchange="args => ChangeValueAsync(filter, args)"
+                                        disabled="@Disabled">
+                                    <option value="">Válassz értéket</option>
+                                    <option value="true">Igen</option>
+                                    <option value="false">Nem</option>
+                                </select>
+                            }
+                            else
+                            {
+                                <input type="@InputType(filter)"
+                                       value="@ValueText(filter)"
+                                       @oninput="args => ChangeValueAsync(filter, args)"
+                                       step="any"
+                                       placeholder="@ValuePlaceholder(filter)"
+                                       disabled="@Disabled" />
+                            }
+
+                            @if (IsListOperation(filter.Operator))
+                            {
+                                <small>
+                                    @ListHelp(filter)
+                                </small>
+                            }
+                        </label>
+                    }
+                }
+            </div>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = "A fő adatrész szűrői";
+
+    [Parameter, EditorRequired]
+    public List<ReportDocumentFilterEditorDefinition> Filters
+    {
+        get;
+        set;
+    } = [];
+
+    [Parameter]
+    public IReadOnlyList<FieldOption> AvailableFields
+    {
+        get;
+        set;
+    } = [];
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback Changed { get; set; }
+
+    private static readonly (string Code, string Label)[] Operations =
+    [
+        ("EQUALS", "Egyenlő"),
+        ("NOT_EQUALS", "Nem egyenlő"),
+        ("GREATER_THAN", "Nagyobb"),
+        ("GREATER_THAN_OR_EQUAL", "Nagyobb vagy egyenlő"),
+        ("LESS_THAN", "Kisebb"),
+        ("LESS_THAN_OR_EQUAL", "Kisebb vagy egyenlő"),
+        ("CONTAINS", "Tartalmazza"),
+        ("STARTS_WITH", "Ezzel kezdődik"),
+        ("IS_NULL", "Nincs kitöltve"),
+        ("IS_NOT_NULL", "Ki van töltve"),
+        ("IN", "Szerepel a listában"),
+        ("NOT_IN", "Nem szerepel a listában")
+    ];
+
+    private readonly string _editorId =
+        $"report-filter-{Guid.NewGuid():N}";
+
+    private readonly Dictionary<ReportDocumentFilterEditorDefinition, string>
+        _referenceInputs = [];
+
+    private readonly Dictionary<ReportDocumentFilterEditorDefinition, string>
+        _valueInputs = [];
+
+    private List<ReportDocumentFilterEditorDefinition>? _loadedFilters;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_loadedFilters, Filters))
+        {
+            _loadedFilters = Filters;
+            _referenceInputs.Clear();
+            _valueInputs.Clear();
+        }
+
+        foreach (var filter in Filters)
+        {
+            filter.Operator = string.IsNullOrWhiteSpace(filter.Operator)
+                ? "EQUALS"
+                : filter.Operator.Trim().ToUpperInvariant();
+        }
+    }
+
+    public string EditorSignature()
+    {
+        return JsonSerializer.Serialize(
+            Filters.Select(item => new
+            {
+                item.Field,
+                item.Operator,
+                item.Parameter,
+                item.Constant,
+                ReferenceInput = ReferenceText(item),
+                ValueInput = ValueText(item)
+            }).ToArray());
+    }
+
+    public bool Validate()
+    {
+        for (var index = 0; index < Filters.Count; index++)
+        {
+            var filter = Filters[index];
+            var number = index + 1;
+
+            var selected = AvailableFields.FirstOrDefault(item =>
+                Same(item.Reference, filter.Field));
+
+            if (selected is null)
+            {
+                return Error(
+                    $"{number}. szűrőfeltétel: válassz érvényes adatmezőt.");
+            }
+
+            if (!Operations.Any(item =>
+                    Same(item.Code, filter.Operator)))
+            {
+                return Error(
+                    $"{number}. szűrőfeltétel: ismeretlen művelet.");
+            }
+
+            if (Same(filter.Operator, "CONTAINS") ||
+                Same(filter.Operator, "STARTS_WITH"))
+            {
+                if (!Same(selected.DataType, "text") &&
+                    !Same(selected.DataType, "option"))
+                {
+                    return Error(
+                        $"{number}. szűrőfeltétel: szöveges kereséshez szövegmezőt válassz.");
+                }
+            }
+
+            if (IsNullOperation(filter.Operator))
+                continue;
+
+            if (!string.IsNullOrWhiteSpace(filter.Parameter))
+                continue;
+
+            UpdateConstant(filter);
+
+            if (filter.Constant is not { } value ||
+                value.ValueKind is
+                    JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return Error(
+                    $"{number}. szűrőfeltétel: adj meg az adattípusnak megfelelő értéket.");
+            }
+        }
+
+        return true;
+    }
+
+    public void NormalizeForSave()
+    {
+        foreach (var filter in Filters)
+        {
+            filter.Field = filter.Field.Trim();
+            filter.Operator = filter.Operator.Trim().ToUpperInvariant();
+
+            filter.Parameter = string.IsNullOrWhiteSpace(filter.Parameter)
+                ? null
+                : filter.Parameter.Trim();
+
+            if (IsNullOperation(filter.Operator))
+            {
+                filter.Parameter = null;
+                filter.Constant = null;
+            }
+            else if (filter.Parameter is not null)
+            {
+                filter.Constant = null;
+            }
+            else
+            {
+                UpdateConstant(filter);
+            }
+        }
+    }
+
+    private async Task AddFilterAsync()
+    {
+        if (Disabled)
+            return;
+
+        Filters.Add(new ReportDocumentFilterEditorDefinition
+        {
+            Field = "",
+            Operator = "EQUALS"
+        });
+
+        await Changed.InvokeAsync();
+    }
+
+    private async Task RemoveFilterAsync(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (Disabled)
+            return;
+
+        Filters.Remove(filter);
+        _referenceInputs.Remove(filter);
+        _valueInputs.Remove(filter);
+
+        await Changed.InvokeAsync();
+    }
+
+    private async Task ChangeFieldAsync(
+        ReportDocumentFilterEditorDefinition filter,
+        ChangeEventArgs args)
+    {
+        if (Disabled)
+            return;
+
+        var text = args.Value?.ToString() ?? "";
+        _referenceInputs[filter] = text;
+
+        var selected = AvailableFields.FirstOrDefault(item =>
+            Same(item.Reference, text.Trim()) ||
+            Same(OptionLabel(item), text.Trim()));
+
+        if (selected is null)
+        {
+            var matches = AvailableFields
+                .Where(item => Same(item.DisplayName, text.Trim()))
+                .Take(2)
+                .ToArray();
+
+            if (matches.Length == 1)
+                selected = matches[0];
+        }
+
+        filter.Field = selected?.Reference ?? "";
+
+        UpdateConstant(filter);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task ChangeOperatorAsync(
+        ReportDocumentFilterEditorDefinition filter,
+        ChangeEventArgs args)
+    {
+        if (Disabled)
+            return;
+
+        var previous = filter.Operator;
+        var previousText = ValueText(filter);
+
+        filter.Operator = (
+            args.Value?.ToString() ?? "EQUALS")
+            .Trim()
+            .ToUpperInvariant();
+
+        if (IsListOperation(previous) !=
+            IsListOperation(filter.Operator))
+        {
+            _valueInputs[filter] = "";
+            filter.Constant = null;
+        }
+        else if (!IsNullOperation(previous))
+        {
+            _valueInputs[filter] = previousText;
+        }
+
+        if (IsNullOperation(filter.Operator))
+        {
+            filter.Constant = null;
+            filter.Parameter = null;
+        }
+        else
+        {
+            UpdateConstant(filter);
+        }
+
+        await Changed.InvokeAsync();
+    }
+
+    private async Task ChangeValueAsync(
+        ReportDocumentFilterEditorDefinition filter,
+        ChangeEventArgs args)
+    {
+        if (Disabled)
+            return;
+
+        _valueInputs[filter] = args.Value?.ToString() ?? "";
+
+        UpdateConstant(filter);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task UseConstantAsync(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (Disabled)
+            return;
+
+        filter.Parameter = null;
+        filter.Constant = null;
+        _valueInputs[filter] = "";
+
+        await Changed.InvokeAsync();
+    }
+
+    private void UpdateConstant(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (IsNullOperation(filter.Operator))
+        {
+            filter.Constant = null;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Parameter))
+            return;
+
+        var text = ValueText(filter);
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            filter.Constant = null;
+            return;
+        }
+
+        try
+        {
+            if (IsListOperation(filter.Operator))
+            {
+                using var document = JsonDocument.Parse(text);
+
+                if (document.RootElement.ValueKind != JsonValueKind.Array ||
+                    document.RootElement.GetArrayLength() == 0)
+                {
+                    throw new FormatException();
+                }
+
+                var items = document.RootElement
+                    .EnumerateArray()
+                    .Select(item =>
+                    {
+                        if (item.ValueKind is
+                            JsonValueKind.Array or
+                            JsonValueKind.Object or
+                            JsonValueKind.Null or
+                            JsonValueKind.Undefined)
+                        {
+                            throw new FormatException();
+                        }
+
+                        return ParseScalar(
+                            DataType(filter),
+                            item.ValueKind == JsonValueKind.String
+                                ? item.GetString() ?? ""
+                                : item.GetRawText());
+                    })
+                    .ToArray();
+
+                filter.Constant = JsonSerializer.SerializeToElement(items);
+            }
+            else
+            {
+                filter.Constant = ParseScalar(
+                    DataType(filter),
+                    text);
+            }
+        }
+        catch (FormatException)
+        {
+            filter.Constant = null;
+        }
+        catch (OverflowException)
+        {
+            filter.Constant = null;
+        }
+        catch (JsonException)
+        {
+            filter.Constant = null;
+        }
+    }
+
+    private string ReferenceText(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (_referenceInputs.TryGetValue(filter, out var text))
+            return text;
+
+        var selected = AvailableFields.FirstOrDefault(item =>
+            Same(item.Reference, filter.Field));
+
+        return selected is null
+            ? filter.Field
+            : OptionLabel(selected);
+    }
+
+    private string ValueText(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (_valueInputs.TryGetValue(filter, out var text))
+            return text;
+
+        if (filter.Constant is not { } value ||
+            value.ValueKind is
+                JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return "";
+        }
+
+        return value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? ""
+            : value.GetRawText();
+    }
+
+    private string DataType(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        return AvailableFields.FirstOrDefault(item =>
+            Same(item.Reference, filter.Field))?.DataType ?? "text";
+    }
+
+    private string InputType(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        if (IsListOperation(filter.Operator))
+            return "text";
+
+        return DataType(filter).ToLowerInvariant() switch
+        {
+            "integer" or "decimal" or "number" => "number",
+            "date" => "date",
+            "month" => "month",
+            "time" => "time",
+            "datetime" => "datetime-local",
+            _ => "text"
+        };
+    }
+
+    private string ValuePlaceholder(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        return IsListOperation(filter.Operator)
+            ? "JSON-lista"
+            : "Szűrési érték";
+    }
+
+    private string ListHelp(
+        ReportDocumentFilterEditorDefinition filter)
+    {
+        return DataType(filter).ToLowerInvariant() switch
+        {
+            "integer" or "decimal" or "number" =>
+                "Például: [100, 200, 300]",
+            "boolean" =>
+                "Például: [true, false]",
+            "date" =>
+                "Például: [\"2026-11-01\", \"2026-11-30\"]",
+            "month" =>
+                "Például: [\"2026-10\", \"2026-11\"]",
+            _ =>
+                "Például: [\"O\", \"A\"]"
+        };
+    }
+
+    private static string OptionLabel(FieldOption item) =>
+        $"{item.DisplayName} ({item.Reference})";
+
+    private static JsonElement ParseScalar(
+        string dataType,
+        string text)
+    {
+        object value = dataType.ToLowerInvariant() switch
+        {
+            "integer" => long.Parse(
+                text,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture),
+
+            "decimal" or "number" => decimal.Parse(
+                text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture),
+
+            "boolean" => bool.Parse(text),
+
+            "date" => DateOnly.ParseExact(
+                    text,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture)
+                .ToString(
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture),
+
+            "month" => ParseMonth(text),
+
+            "time" => TimeOnly.Parse(
+                    text,
+                    CultureInfo.InvariantCulture)
+                .ToString(
+                    "HH:mm:ss.fffffff",
+                    CultureInfo.InvariantCulture),
+
+            "datetime" => DateTime.Parse(
+                    text,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind)
+                .ToString(
+                    "O",
+                    CultureInfo.InvariantCulture),
+
+            "datetimeoffset" => DateTimeOffset.Parse(
+                    text,
+                    CultureInfo.InvariantCulture)
+                .ToString(
+                    "O",
+                    CultureInfo.InvariantCulture),
+
+            "guid" => Guid.Parse(text).ToString(),
+
+            _ => text
+        };
+
+        return JsonSerializer.SerializeToElement(value);
+    }
+
+    private static string ParseMonth(string text)
+    {
+        var normalized = text;
+
+        if (normalized.Length == 6)
+        {
+            normalized =
+                $"{normalized[..4]}-{normalized[4..]}";
+        }
+
+        if (normalized.Length != 7)
+            throw new FormatException();
+
+        return DateOnly.ParseExact(
+                $"{normalized}-01",
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture)
+            .ToString(
+                "yyyy-MM",
+                CultureInfo.InvariantCulture);
+    }
+
+    private bool Error(string message)
+    {
+        Feedback.ShowError(message);
+        return false;
+    }
+
+    private static bool IsNullOperation(string operation) =>
+        Same(operation, "IS_NULL") ||
+        Same(operation, "IS_NOT_NULL");
+
+    private static bool IsListOperation(string operation) =>
+        Same(operation, "IN") ||
+        Same(operation, "NOT_IN");
+
+    private static bool Same(
+        string? first,
+        string? second) =>
+        string.Equals(
+            first,
+            second,
+            StringComparison.OrdinalIgnoreCase);
+
+    public sealed class FieldOption
+    {
+        public string Reference { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string DataType { get; set; } = "text";
+    }
+}

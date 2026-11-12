@@ -1,0 +1,1133 @@
+﻿@using System.Text.Json.Nodes
+
+@if (Steps is not null)
+{
+    <div class="rule-nested-list @(IsStatement ? "rule-statement-list" : "rule-expression-list") @(IsConditionList ? "rule-condition-list" : string.Empty)">
+        @for (var i = 0; i < Steps.Count; i++)
+        {
+            var itemIndex = i;
+            if (Steps[itemIndex] is JsonObject child)
+            {
+                @if (IsConditionList)
+                {
+                    <div class="rule-condition-entry">
+                        <span class="rule-condition-label">Feltétel @(itemIndex + 1)</span>
+                        <RuleOperationEditor @key="child" Node="child" Operations="Operations" ValueTypes="ValueTypes"
+                                             DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules" IsStatement="IsStatement" IsConditionContext="IsConditionContext" IsCompactCondition="true" ExpectedType="ExpectedType"
+                                             Depth="@(Depth + 1)" InsideConditionList="IsConditionList" OnChanged="OnChanged"
+                                             OnRemove="() => RemoveItem(itemIndex)" />
+                    </div>
+                }
+                else
+                {
+                    <RuleOperationEditor @key="child" Node="child" Operations="Operations" ValueTypes="ValueTypes"
+                                         DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules" IsStatement="IsStatement" IsConditionContext="IsConditionContext" IsCompactCondition="IsCompactCondition" ExpectedType="ExpectedType"
+                                         Depth="@(Depth + 1)" InsideConditionList="IsConditionList" OnChanged="OnChanged"
+                                         OnRemove="() => RemoveItem(itemIndex)" />
+                }
+            }
+        }
+        @if (Steps.Count == 0 && IsStatement)
+        {
+            <p class="rule-muted">Nincs még művelet ebben az ágban.</p>
+        }
+        <div class="rule-nested-add">
+            <select @bind="_pendingCode" aria-label="Hozzáadandó elem">
+                <option value="">Válassz @(IsConditionList ? "feltételt" : IsStatement ? "műveletet" : "elemet")…</option>
+                @foreach (var operation in AvailableOperations)
+                {
+                    <option value="@operation.Code">@operation.DisplayName</option>
+                }
+            </select>
+            <button type="button" class="rule-secondary" @onclick="AddItem" disabled="@string.IsNullOrWhiteSpace(_pendingCode)">
+                + @(IsStatement ? "Utasítás" : "Feltétel")
+            </button>
+        </div>
+    </div>
+}
+else if (Node is not null)
+{
+    <article class="rule-node-card @(IsStatement ? "rule-node-statement" : "rule-node-expression") @(IsCurrentLogicalGroup ? "rule-logical-group" : string.Empty) @(IsCompactCondition ? "rule-condition-expression" : string.Empty) operation-@NodeCode"
+             style="@(IsCompactCondition ? "gap: 8px; padding: 10px; border: 1px solid #e1e6ef; border-left: 3px solid #cbd5e1; border-radius: 8px; background: #fff;" : IsCurrentLogicalGroup ? "border-left: 4px solid #315eea;" : null)">
+        <div class="rule-node-heading">
+            <label>
+                @NodeTypeLabel
+                <select value="@NodeCode" @onchange="ChangeOperation" aria-label="@NodeTypeLabel">
+                    @if (!IsRootLogicalGroup)
+                    {
+                        <option value="">Válassz @NodeTypeChoiceLabel…</option>
+                    }
+                    @foreach (var operation in IsRootLogicalGroup ? LogicalGroupOperations : AvailableOperations)
+                    {
+                        <option value="@operation.Code">@OperationDisplayName(operation)</option>
+                    }
+                </select>
+            </label>
+            @if (OnRemove.HasDelegate)
+            {
+                <button type="button" class="rule-text-button rule-remove-step" @onclick="OnRemove">Eltávolítás</button>
+            }
+            @if (SelectedOperation is not null)
+            {
+                <button type="button" class="rule-collapse-button" @onclick="ToggleCollapsed">
+                    @(_isCollapsed ? "Kinyitás" : "Összecsukás")
+                </button>
+            }
+        </div>
+
+        @if (_isCollapsed && (NodeCode is "callRule" or "invokeRule") && SelectedCallableRule is { } collapsedRule)
+        {
+            <p class="rule-node-description">
+                Meghívva: @collapsedRule.Name — visszatérési érték: @FormatValueType(collapsedRule.ReturnType).
+            </p>
+        }
+
+        @if (SelectedOperation is not null && !_isCollapsed)
+        {
+            @if (IsConditionalFlow)
+            {
+                <div class="rule-flow" style="display:grid; gap:14px;">
+                    <section class="rule-flow-section" style="padding:16px; border:1px solid #cbd5e1; border-left:5px solid #315eea; border-radius:10px; background:#f8faff;">
+                        <div style="display:flex; align-items:flex-start; gap:12px; margin-bottom:12px;">
+                            <span style="display:grid; place-items:center; flex:0 0 28px; height:28px; border-radius:50%; background:#315eea; color:#fff; font-weight:700;">1</span>
+                            <div>
+                                <h3 style="margin:0 0 3px; font-size:1rem;">Ha</h3>
+                            </div>
+                        </div>
+                        <RuleOperationEditor Node="@ConditionNode" Operations="Operations" ValueTypes="ValueTypes"
+                                             DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules"
+                                             IsStatement="false" IsConditionContext="true" ExpectedType="booleanExpression" Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                    </section>
+
+                    <section class="rule-flow-section" style="padding:16px; border:1px solid #cbd5e1; border-left:5px solid #16a36a; border-radius:10px; background:#f7fcf9;">
+                        <div style="display:flex; align-items:flex-start; gap:12px; margin-bottom:12px;">
+                            <span style="display:grid; place-items:center; flex:0 0 28px; height:28px; border-radius:50%; background:#16a36a; color:#fff; font-weight:700;">2</span>
+                            <div>
+                                <h3 style="margin:0 0 3px; font-size:1rem;">Akkor</h3>
+                            </div>
+                        </div>
+                        <RuleOperationEditor Steps="@ThenSteps" Operations="Operations" ValueTypes="ValueTypes"
+                                             DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules"
+                                             IsStatement="true" Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                    </section>
+
+                    @if (HasInput("elseSteps"))
+                    {
+                        <section class="rule-flow-section" style="padding:16px; border:1px solid #cbd5e1; border-left:5px solid #98a2b3; border-radius:10px; background:#fbfcfe;">
+                            <div style="display:flex; align-items:flex-start; gap:12px; margin-bottom:12px;">
+                                <span style="display:grid; place-items:center; flex:0 0 28px; height:28px; border-radius:50%; background:#667085; color:#fff; font-weight:700;">3</span>
+                                <div>
+                                    <h3 style="margin:0 0 3px; font-size:1rem;">Egyébként <span style="font-weight:400; color:#667085;">(nem kötelező)</span></h3>
+                                </div>
+                            </div>
+                            <RuleOperationEditor Steps="@ElseSteps" Operations="Operations" ValueTypes="ValueTypes"
+                                                 DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules"
+                                                 IsStatement="true" Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                        </section>
+                    }
+                </div>
+            }
+            else
+            {
+                @if (!IsCurrentLogicalGroup && !string.IsNullOrWhiteSpace(SelectedOperation.Description))
+                {
+                    <p class="rule-muted rule-node-description">@SelectedOperation.Description</p>
+                }
+                <div class="rule-node-inputs">
+                    @foreach (var input in SelectedOperation.Inputs ?? [])
+                    {
+                        @if (input.Type == "statementList" || input.Type == "booleanExpressionList")
+                        {
+                            <section class="rule-input-group">
+                                <h4>@InputLabel(input.Name) @(input.Required ? "*" : "")</h4>
+                                <RuleOperationEditor Steps="@GetList(input.Name)" Operations="Operations" ValueTypes="ValueTypes"
+                                                     DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules"
+                                                     IsStatement="@(input.Type == "statementList")"
+                                                     IsConditionList="@(input.Type == "booleanExpressionList")"
+                                                     IsConditionContext="@(IsConditionContext || input.Type == "booleanExpressionList")"
+                                                     ExpectedType="@(input.Type == "booleanExpressionList" ? "booleanExpression" : null)"
+                                                     Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                            </section>
+                        }
+                        else if (input.Type == "caseList" && SelectedOperation.Code == "switch")
+                        {
+                            <section class="rule-input-group rule-switch-case-list">
+                                <div class="rule-switch-list-heading">
+                                    <div>
+                                        <h4>Esetek @(input.Required ? "*" : "")</h4>
+                                        <p class="rule-muted">Minden esethez add meg a távolléti kódot és az arra lefutó műveleteket.</p>
+                                    </div>
+                                    <button type="button" class="rule-secondary" @onclick="AddSwitchCase">+ Eset</button>
+                                </div>
+                                @if (GetList(input.Name).Count == 0)
+                                {
+                                    <p class="rule-muted rule-switch-empty">Még nincs eset. Adj hozzá legalább egy kódot.</p>
+                                }
+                                @for (var caseIndex = 0; caseIndex < GetList(input.Name).Count; caseIndex++)
+                                {
+                                    var currentIndex = caseIndex;
+                                    <article @key="GetSwitchCase(currentIndex)" class="rule-switch-case">
+                                        <header class="rule-switch-case-heading">
+                                            <h5>Eset @(currentIndex + 1)</h5>
+                                            <button type="button" class="rule-text-button rule-remove-step" @onclick="() => RemoveSwitchCase(currentIndex)">Eset törlése</button>
+                                        </header>
+                                        <label class="rule-primitive-input">
+                                            Távollét vagy esemény kódja *
+                                            <input value="@GetSwitchCaseValue(currentIndex)"
+                                                   @oninput="args => SetSwitchCaseValue(currentIndex, args.Value?.ToString())"
+                                                   placeholder="Például 2000-TULO" />
+                                        </label>
+                                        <div class="rule-switch-case-steps">
+                                            <h5>Ha a kód egyezik, hajtsa végre</h5>
+                                            <RuleOperationEditor Steps="@GetSwitchCaseSteps(currentIndex)" Operations="Operations" ValueTypes="ValueTypes"
+                                                                 DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules"
+                                                                 IsStatement="true" Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                                        </div>
+                                    </article>
+                                }
+                            </section>
+                        }
+                        else if (input.Type == "dynamic" && SelectedOperation.Code == "constant" && input.Name == "value")
+                        {
+                            var literalType = GetString("valueType");
+                            <label class="rule-primitive-input">
+                                Konstans érték
+                                @if (literalType == "option" && ComparisonOptions.Count > 0)
+                                {
+                                    <select value="@GetString(input.Name)" @onchange="args => SetListConstant(args.Value?.ToString())">
+                                        <option value="">Válassz listaértéket…</option>
+                                        @if (!string.IsNullOrEmpty(GetString(input.Name)) && !ComparisonOptions.Any(option => option.OptionCode == GetString(input.Name)))
+                                        {
+                                            <option value="@GetString(input.Name)">Ismeretlen listaérték: @GetString(input.Name)</option>
+                                        }
+                                        @foreach (var option in ComparisonOptions.Where(option => option.IsActive || option.OptionCode == GetString(input.Name)))
+                                        {
+                                            <option value="@option.OptionCode">@option.DisplayName@(!option.IsActive ? " (inaktív)" : "")</option>
+                                        }
+                                    </select>
+                                }
+                                else if (literalType == "boolean")
+                                {
+                                    <select value="@GetString(input.Name)" @onchange="args => SetTypedLiteral(input.Name, literalType, args.Value?.ToString())">
+                                        <option value="true">Igen</option>
+                                        <option value="false">Nem</option>
+                                    </select>
+                                }
+                                else if (literalType == "decimal")
+                                {
+                                    <input type="number" step="any" value="@GetString(input.Name)" @oninput="args => SetTypedLiteral(input.Name, literalType, args.Value?.ToString())" />
+                                }
+                                else if (literalType == "date")
+                                {
+                                    <input type="date" value="@GetString(input.Name)" @oninput="args => SetTypedLiteral(input.Name, literalType, args.Value?.ToString())" />
+                                }
+                                else if (literalType == "time")
+                                {
+                                    <input type="time" value="@GetString(input.Name)" @oninput="args => SetTypedLiteral(input.Name, literalType, args.Value?.ToString())" />
+                                }
+                                else
+                                {
+                                    <input value="@GetString(input.Name)" @oninput="args => SetTypedLiteral(input.Name, literalType, args.Value?.ToString())" placeholder="Írd be a konstans értéket" />
+                                }
+                            </label>
+                        }
+                        else if (input.Type == "dynamic" && GetInputs()[input.Name] is JsonValue)
+                        {
+                            <label class="rule-primitive-input">
+                                @InputLabel(input.Name)
+                                <input value="@GetString(input.Name)" @oninput="args => SetString(input.Name, args.Value?.ToString())" placeholder="Add meg az értéket" />
+                            </label>
+                        }
+                        else if (IsTypedValue(input.Type) && GetInputs()[input.Name] is JsonObject)
+                        {
+                            <section class="rule-input-group">
+                                <h4>@InputLabel(input.Name) @(input.Required ? "*" : "")</h4>
+                                <button type="button" class="rule-mode-button" @onclick="() => SetLiteralMode(input.Name, input.Type)">Egyszerű értéket írok be</button>
+                                <RuleOperationEditor Node="@GetNode(input.Name)" ComparisonOptions="@GetComparisonOptions(input.Name)" Operations="Operations" ValueTypes="ValueTypes"
+                                                     DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules"
+                                                     IsStatement="false" IsConditionContext="IsConditionContext" ExpectedType="@input.Type" Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                            </section>
+                        }
+                        else if (IsTypedValue(input.Type) && GetInputs()[input.Name] is JsonValue)
+                        {
+                            <label class="rule-primitive-input">
+                                @InputLabel(input.Name) @(input.Required ? "*" : "")
+                                @if (input.Type == "decimal")
+                                {
+                                    <input type="number" step="any" value="@GetString(input.Name)" @oninput="args => SetTypedLiteral(input.Name, input.Type, args.Value?.ToString())" />
+                                }
+                                else if (input.Type == "boolean")
+                                {
+                                    <select value="@GetString(input.Name)" @onchange="args => SetTypedLiteral(input.Name, input.Type, args.Value?.ToString())">
+                                        <option value="true">Igen</option>
+                                        <option value="false">Nem</option>
+                                    </select>
+                                }
+                                else if (input.Type == "date")
+                                {
+                                    <input type="date" value="@GetString(input.Name)" @oninput="args => SetTypedLiteral(input.Name, input.Type, args.Value?.ToString())" />
+                                }
+                                else if (input.Type == "time")
+                                {
+                                    <input type="time" value="@GetString(input.Name)" @oninput="args => SetTypedLiteral(input.Name, input.Type, args.Value?.ToString())" />
+                                }
+                                else
+                                {
+                                    <input value="@GetString(input.Name)" @oninput="args => SetTypedLiteral(input.Name, input.Type, args.Value?.ToString())" placeholder="Írd be az értéket" />
+                                }
+                            </label>
+                            <button type="button" class="rule-mode-button" @onclick="() => SetExpressionMode(input.Name, input.Type)">Adatmezőt vagy műveletet választok</button>
+                        }
+                        else if (input.Type == "dynamic" || IsExpressionType(input.Type))
+                        {
+                            <section class="rule-input-group">
+                                <h4>@InputLabel(input.Name) @(input.Required ? "*" : "")</h4>
+                                @if (input.Type != "booleanExpression")
+                                {
+                                    <button type="button" class="rule-mode-button" @onclick="() => SetLiteralMode(input.Name, input.Type)">Egyszerű értéket írok be</button>
+                                }
+                                <RuleOperationEditor Node="@GetNode(input.Name)" ComparisonOptions="@GetComparisonOptions(input.Name)" Operations="Operations" ValueTypes="ValueTypes"
+                                                     DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules" IsStatement="false" IsConditionContext="IsConditionContext" ExpectedType="@input.Type"
+                                                     Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                            </section>
+                        }
+                        else if (input.Type == "dataReferenceSelector")
+                        {
+                            <div class="rule-primitive-input rule-data-reference">
+                                <div class="rule-reference-picker">
+                                    <label>
+                                        @InputLabel(input.Name) @(input.Required ? "*" : "")
+                                        <input value="@GetDataReferenceInputValue(input.Name)"
+                                               @oninput="args => OnDataSearchChanged(args.Value?.ToString())"
+                                               @onfocus="() => OnDataReferenceFocus(input.Name)"
+                                               @onblur="() => _showDataReferenceResults = false"
+                                               placeholder="Keresés név vagy kód alapján, például munkarend" />
+                                    </label>
+                                    @if (_showDataReferenceResults)
+                                    {
+                                        <div class="rule-reference-results" role="listbox" aria-label="Találatok az adatmezők között">
+                                            @foreach (var reference in FilteredDataReferences.Take(8))
+                                            {
+                                                <button type="button"
+                                                        class="rule-reference-option @(GetString(input.Name) == reference.Reference ? "is-selected" : string.Empty)"
+                                                        @onmousedown:preventDefault="true"
+                                                        @onclick="() => SelectDataReference(input.Name, reference)">
+                                                    <strong>@reference.DisplayName</strong>
+                                                    <small>@reference.Reference</small>
+                                                </button>
+                                            }
+                                            @if (!FilteredDataReferences.Any())
+                                            {
+                                                <p class="rule-reference-empty">Nincs ilyen nevű vagy típusú adatmező a betöltött katalógusban.</p>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(GetString(input.Name)))
+                                {
+                                    <small class="rule-reference-current">Kiválasztva: @GetString(input.Name)</small>
+                                }
+                            </div>
+                        }
+                        else if (input.Type == "ruleReference")
+                        {
+                            <label class="rule-primitive-input">
+                                Segédszabály @(input.Required ? "*" : "")
+                                <select value="@GetString(input.Name)" @onchange="args => SelectCallableRule(args.Value?.ToString())">
+                                    <option value="">Válassz meghívható segédszabályt…</option>
+                                    @foreach (var rule in AvailableCallableRules)
+                                    {
+                                        <option value="@rule.RuleCode">@rule.Name (@rule.RuleCode)</option>
+                                    }
+                                </select>
+                                @if (SelectedCallableRule is { } selectedRule)
+                                {
+                                    <small>A segédszabály visszatérési típusa: @FormatValueType(selectedRule.ReturnType).</small>
+                                }
+                                @if (!AvailableCallableRules.Any())
+                                {
+                                    <small>
+                                        @(NodeCode == "invokeRule"
+                                                            ? "Nincs választható aktív segédszabály betöltve."
+                                                            : "Nincs az elvárt eredménytípussal egyező aktív segédszabály.")
+                                    </small>
+                                }
+                            </label>
+                        }
+                        else if (input.Type == "ruleArguments")
+                        {
+                            <section class="rule-input-group">
+                                <h4>A segédszabály bemenetei</h4>
+                                @if (SelectedCallableRule is not { } calledRule)
+                                {
+                                    <p class="rule-muted">Először válassz segédszabályt.</p>
+                                }
+                                else if (calledRule.Parameters.Count == 0)
+                                {
+                                    <p class="rule-muted">Ehhez a segédszabályhoz nem kell bemenetet megadni.</p>
+                                }
+                                else
+                                {
+                                    @foreach (var parameter in calledRule.Parameters)
+                                    {
+                                        <div class="rule-input-group">
+                                            <h4>@Humanize(parameter.Name) (@FormatValueType(parameter.Type))</h4>
+                                            @if (GetCallableArgument(parameter) is JsonValue)
+                                            {
+                                                <label class="rule-primitive-input">
+                                                    @Humanize(parameter.Name)
+                                                    @if (parameter.Type is "decimal" or "integer")
+                                                    {
+                                                        <input type="number" step="any" value="@GetCallableArgument(parameter)?.ToString()"
+                                                               @oninput="args => SetCallableArgumentLiteralValue(parameter, args.Value?.ToString())" />
+                                                    }
+                                                    else if (parameter.Type == "boolean")
+                                                    {
+                                                        <select value="@GetCallableArgument(parameter)?.ToString()"
+                                                                @onchange="args => SetCallableArgumentLiteralValue(parameter, args.Value?.ToString())">
+                                                            <option value="true">Igen</option>
+                                                            <option value="false">Nem</option>
+                                                        </select>
+                                                    }
+                                                    else if (parameter.Type == "date")
+                                                    {
+                                                        <input type="date" value="@GetCallableArgument(parameter)?.ToString()"
+                                                               @oninput="args => SetCallableArgumentLiteralValue(parameter, args.Value?.ToString())" />
+                                                    }
+                                                    else if (parameter.Type == "time")
+                                                    {
+                                                        <input type="time" value="@GetCallableArgument(parameter)?.ToString()"
+                                                               @oninput="args => SetCallableArgumentLiteralValue(parameter, args.Value?.ToString())" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <input value="@GetCallableArgument(parameter)?.ToString()"
+                                                               @oninput="args => SetCallableArgumentLiteralValue(parameter, args.Value?.ToString())" />
+                                                    }
+                                                </label>
+                                                <button type="button" class="rule-mode-button" @onclick="() => SetCallableArgumentExpression(parameter)">
+                                                    Adatmezőt vagy műveletet választok
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                @if (parameter.Type != "collection")
+                                                {
+                                                    <button type="button" class="rule-mode-button" @onclick="() => SetCallableArgumentLiteral(parameter)">
+                                                        Egyszerű értéket írok be
+                                                    </button>
+                                                }
+                                                <RuleOperationEditor Node="@GetCallableArgumentNode(parameter)" Operations="Operations" ValueTypes="ValueTypes"
+                                                                     DataReferences="DataReferences" ListOptions="ListOptions" PayrollElements="PayrollElements" PayrollElementsLoading="PayrollElementsLoading" CallableRules="CallableRules"
+                                                                     IsStatement="false" IsConditionContext="IsConditionContext" ExpectedType="@ExpressionTypeForParameter(parameter.Type)"
+                                                                     Depth="@(Depth + 1)" OnChanged="OnChanged" />
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </section>
+                        }
+                        else
+                        {
+                            <label class="rule-primitive-input">
+                                @InputLabel(input.Name) @(input.Required ? "*" : "")
+                                @if (input.Type == "valueTypeSelector")
+                                {
+                                    <select value="@GetString(input.Name)" @onchange="args => SetString(input.Name, args.Value?.ToString())">
+                                        @foreach (var type in ValueTypes)
+                                        {
+                                            <option value="@type">@FormatValueType(type)</option>
+                                        }
+                                    </select>
+                                }
+                                else if (input.Type == "payrollElementReference")
+                                {
+                                    <select value="@GetString(input.Name)" @onchange="args => SetString(input.Name, args.Value?.ToString())">
+                                        <option value="">@(PayrollElementsLoading ? "Aktív bérelemek betöltése…" : "Válassz aktív bérelemet…")</option>
+                                        @foreach (var element in PayrollElements.Where(element => element.IsActive).OrderBy(element => element.Name))
+                                        {
+                                            <option value="@element.Code">@element.Name (@element.Code)</option>
+                                        }
+                                    </select>
+                                    <small class="rule-input-help">
+                                        @(PayrollElementsLoading
+                                            ? "Az aktív bérelemek betöltése folyamatban van."
+                                            : !PayrollElements.Any(element => element.IsActive)
+                                                ? "Nem található aktív bérelem a bérelemek törzsadatában."
+                                                : "Válaszd ki a bérelemet. A dolgozóhoz tartozó értéket a számfejtés fogja feloldani.")
+                                    </small>
+                                }
+                                else if (input.Type == "decimal" || input.Type == "integer")
+                                {
+                                    <input type="number" step="@(input.Type == "decimal" ? "any" : "1")" value="@GetString(input.Name)"
+                                           @oninput="args => SetNumber(input.Name, args.Value?.ToString())" />
+                                }
+                                else if (input.Type == "boolean")
+                                {
+                                    <input type="checkbox" checked="@GetBool(input.Name)" @onchange="args => SetBool(input.Name, args.Value?.ToString())" />
+                                }
+                                else
+                                {
+                                    <input value="@GetString(input.Name)" @oninput="args => SetString(input.Name, args.Value?.ToString())"
+                                           placeholder="@Placeholder(input.Name, input.Type)" />
+                                }
+                            </label>
+                            @if (IsTypedValue(input.Type))
+                            {
+                                <button type="button" class="rule-mode-button" @onclick="() => SetExpressionMode(input.Name, input.Type)">Adatmezőt vagy műveletet választok</button>
+                            }
+                        }
+                    }
+                </div>
+            }
+        }
+    </article>
+}
+
+@code {
+    public sealed record FieldListOption(string OptionCode, string DisplayName, int SortOrder, bool IsActive);
+    [Parameter]
+    public IReadOnlyDictionary<string, IReadOnlyList<FieldListOption>> ListOptions { get; set; }
+        = new Dictionary<string, IReadOnlyList<FieldListOption>>(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public IReadOnlyList<FieldListOption> ComparisonOptions { get; set; } = [];
+
+    private IReadOnlyList<FieldListOption> GetComparisonOptions(string inputName)
+    {
+        if (SelectedOperation?.ResultType != "boolean" || inputName is not ("left" or "right")) return [];
+        var other = GetInputs()[inputName == "left" ? "right" : "left"] as JsonObject;
+        if (other?["code"]?.ToString() != "dataReference") return [];
+        var reference = other["inputs"]?["reference"]?.ToString();
+        return reference is not null && ListOptions.TryGetValue(reference, out var options) ? options : [];
+    }
+
+    private void SetListConstant(string? code)
+    {
+        GetInputs()["valueType"] = "option";
+        SetString("value", code);
+    }
+
+    [Parameter] public JsonObject? Node { get; set; }
+    [Parameter] public JsonArray? Steps { get; set; }
+    [Parameter] public IReadOnlyList<RuleOperationItem> Operations { get; set; } = [];
+    [Parameter] public IReadOnlyList<string> ValueTypes { get; set; } = [];
+    [Parameter] public IReadOnlyList<RuleDataReference> DataReferences { get; set; } = [];
+    [Parameter] public IReadOnlyList<PayrollElementChoice> PayrollElements { get; set; } = [];
+    [Parameter] public bool PayrollElementsLoading { get; set; }
+    [Parameter] public IReadOnlyList<CallableRuleChoice> CallableRules { get; set; } = [];
+    [Parameter] public bool IsStatement { get; set; }
+    [Parameter] public bool IsConditionContext { get; set; }
+    [Parameter] public bool IsConditionList { get; set; }
+    [Parameter] public bool InsideConditionList { get; set; }
+    [Parameter] public bool IsCompactCondition { get; set; }
+    [Parameter] public string? ExpectedType { get; set; }
+    [Parameter] public int Depth { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback OnRemove { get; set; }
+
+    private string _pendingCode = string.Empty;
+    private string _dataSearch = string.Empty;
+    private bool _showDataReferenceResults;
+    private bool _isCollapsed;
+    private bool _collapseStateInitialized;
+    private string NodeCode => Node?["code"]?.GetValue<string>() ?? string.Empty;
+    private RuleOperationItem? SelectedOperation => Operations.FirstOrDefault(x => string.Equals(x.Code, NodeCode, StringComparison.OrdinalIgnoreCase));
+    private CallableRuleChoice? SelectedCallableRule => CallableRules.FirstOrDefault(rule =>
+        string.Equals(rule.RuleCode, GetString("ruleCode"), StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<CallableRuleChoice> AvailableCallableRules
+    {
+        get
+        {
+            var activeRules = CallableRules.Where(rule => rule.IsActive);
+
+            // Önálló utasításként bármilyen visszatérési típusú segédszabály meghívható.
+            // Az elvárt típus szerinti szűrés csak értékkifejezéseknél szükséges.
+            if (string.Equals(NodeCode, "invokeRule", StringComparison.OrdinalIgnoreCase))
+            {
+                return activeRules.OrderBy(rule => rule.Name);
+            }
+
+            var expectedType = ExpectedType switch
+            {
+                "booleanExpression" => "boolean",
+                "decimalExpression" => "decimal",
+                "dateExpression" => "date",
+                "timeExpression" => "time",
+                _ => ExpectedType
+            };
+
+            return activeRules
+                .Where(rule => string.IsNullOrWhiteSpace(expectedType) ||
+                    expectedType == "dynamic" ||
+                    string.Equals(rule.ReturnType, expectedType, StringComparison.OrdinalIgnoreCase) ||
+                    expectedType == "decimal" && rule.ReturnType == "integer")
+                .OrderBy(rule => rule.Name);
+        }
+    }
+    private bool IsCurrentLogicalGroup => SelectedOperation is not null && IsLogicalGroup(SelectedOperation);
+    private bool IsRootLogicalGroup => IsCurrentLogicalGroup && !InsideConditionList;
+    private bool IsConditionalFlow => HasInput("condition") && HasInput("thenSteps");
+    private JsonObject ConditionNode => GetNode("condition");
+    private JsonArray ThenSteps => GetList("thenSteps");
+    private JsonArray ElseSteps => GetList("elseSteps");
+    private string NodeTypeLabel => IsConditionalFlow ? "Szabály felépítése" : IsStatement ? "Végrehajtandó művelet" : IsRootLogicalGroup ? "Feltételek összekapcsolása" : ExpectedType == "booleanExpression" ? "Feltétel típusa" : "Érték művelete";
+    private string NodeTypeChoiceLabel => IsStatement ? "műveletet" : ExpectedType == "booleanExpression" ? "feltételt" : "műveletet";
+    private IEnumerable<RuleOperationItem> LogicalGroupOperations => Operations.Where(IsAllowed).Where(IsLogicalGroup);
+    private IEnumerable<RuleOperationItem> AvailableOperations => Operations
+        .Where(IsAllowed)
+        .Where(operation => !InsideConditionList
+            || !IsLogicalGroup(operation)
+            || string.Equals(operation.Code, NodeCode, StringComparison.OrdinalIgnoreCase));
+    protected override void OnParametersSet()
+    {
+        if (_collapseStateInitialized)
+            return;
+
+        _isCollapsed = InsideConditionList && IsCurrentLogicalGroup;
+        _collapseStateInitialized = true;
+    }
+
+    private IEnumerable<RuleDataReference> FilteredDataReferences => DataReferences
+        .Where(MatchesExpectedDataType)
+        .Where(reference => string.IsNullOrWhiteSpace(_dataSearch)
+            || reference.DisplayName.Contains(_dataSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+            || reference.Reference.Contains(_dataSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+            || (reference.Category?.Contains(_dataSearch.Trim(), StringComparison.OrdinalIgnoreCase) ?? false))
+        .OrderBy(reference => reference.Category)
+        .ThenBy(reference => reference.DisplayName)
+        .Take(100);
+
+    private bool MatchesExpectedDataType(RuleDataReference reference)
+    {
+        var expected = ExpectedType switch
+        {
+            "decimalExpression" => "decimal",
+            "booleanExpression" => "boolean",
+            "dateExpression" => "date",
+            "date" => "date",
+            "timeExpression" => "time",
+            "time" => "time",
+            "dynamic" => null,
+            null => null,
+            _ => ExpectedType
+        };
+        if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrWhiteSpace(reference.DataType))
+            return true;
+        if (expected == "decimal")
+            return reference.DataType == "decimal" || reference.DataType == "integer";
+        return string.Equals(reference.DataType, expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsLogicalGroup(RuleOperationItem operation) =>
+        operation.Code.Equals("and", StringComparison.OrdinalIgnoreCase)
+        || operation.Code.Equals("or", StringComparison.OrdinalIgnoreCase);
+
+    private static string OperationDisplayName(RuleOperationItem operation)
+    {
+        if (operation.Code.Equals("and", StringComparison.OrdinalIgnoreCase))
+            return "Minden feltétel teljesüljön (ÉS)";
+        if (operation.Code.Equals("or", StringComparison.OrdinalIgnoreCase))
+            return "Legalább egy feltétel teljesüljön (VAGY)";
+        if (operation.DisplayName.Contains("IF / ELSE", StringComparison.OrdinalIgnoreCase))
+            return "Feltételes elágazás (Ha / Akkor / Egyébként)";
+        return operation.DisplayName;
+    }
+
+    private bool IsAllowed(RuleOperationItem op)
+    {
+        if (IsConditionContext && op.Code == "callRule") return false;
+        if (IsStatement) return op.Kind == "statement" || op.Kind == "block";
+        if (op.Kind == "statement" || op.Kind == "block") return false;
+        if (ExpectedType == null || ExpectedType == "dynamic") return true;
+        if (ExpectedType == "booleanExpression") return op.ResultType == "boolean" || op.Code == "constant" || op.Code == "dataReference" || op.Code == "variableReference";
+        if (ExpectedType == "decimalExpression" || ExpectedType == "decimal") return op.ResultType == "decimal" || op.Code == "constant" || op.Code == "dataReference" || op.Code == "variableReference" || op.Code == "callRule";
+        if (ExpectedType == "dateExpression" || ExpectedType == "date") return op.ResultType == "date" || op.Code == "constant" || op.Code == "dataReference" || op.Code == "variableReference" || op.Code == "callRule";
+        if (ExpectedType == "timeExpression" || ExpectedType == "time") return op.ResultType == "time" || op.Code == "constant" || op.Code == "dataReference" || op.Code == "variableReference" || op.Code == "callRule";
+        if (IsTypedValue(ExpectedType)) return string.Equals(op.ResultType, ExpectedType, StringComparison.OrdinalIgnoreCase) || op.Code == "constant" || op.Code == "dataReference" || op.Code == "variableReference" || op.Code == "callRule";
+        if (ExpectedType == "collection") return op.ResultType == "collection" || op.Code == "dataReference" || op.Code == "callRule";
+        return op.ResultType is null || string.Equals(op.ResultType, ExpectedType, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ChangeOperation(ChangeEventArgs args)
+    {
+        if (Node is null) return;
+        _isCollapsed = false;
+        var code = args.Value?.ToString();
+        Node.Clear();
+        Node["code"] = code;
+        Node["inputs"] = new JsonObject();
+        var selected = Operations.FirstOrDefault(x => x.Code == code);
+        if (selected is not null)
+        {
+            foreach (var input in selected.Inputs ?? [])
+            {
+                if (!input.Required && input.Type is "statementList") continue;
+                ((JsonObject)Node["inputs"]!)[input.Name] = CreateDefaultInput(input.Type, Operations, ValueTypes);
+            }
+        }
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private bool HasInput(string name) => SelectedOperation?.Inputs?.Any(input => input.Name == name) == true;
+
+    private void SelectCallableRule(string? ruleCode)
+    {
+        var inputs = GetInputs();
+        inputs["ruleCode"] = JsonValue.Create(ruleCode ?? string.Empty);
+
+        var arguments = new JsonObject();
+        var rule = CallableRules.FirstOrDefault(candidate =>
+            string.Equals(candidate.RuleCode, ruleCode, StringComparison.OrdinalIgnoreCase));
+        if (rule is not null)
+        {
+            foreach (var parameter in rule.Parameters)
+            {
+                arguments[parameter.Name] = CreateDefaultExpression(
+                    ExpressionTypeForParameter(parameter.Type),
+                    Operations,
+                    ValueTypes);
+            }
+        }
+
+        inputs["arguments"] = arguments;
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private JsonObject GetCallableArguments()
+    {
+        var inputs = GetInputs();
+        if (inputs["arguments"] is JsonObject arguments)
+        {
+            return arguments;
+        }
+
+        arguments = [];
+        inputs["arguments"] = arguments;
+        return arguments;
+    }
+
+    private JsonNode? GetCallableArgument(CallableRuleParameter parameter) =>
+        GetCallableArguments()[parameter.Name];
+
+    private void SetCallableArgumentLiteral(CallableRuleParameter parameter)
+    {
+        GetCallableArguments()[parameter.Name] = parameter.Type switch
+        {
+            "decimal" or "integer" => JsonValue.Create(0),
+            "boolean" => JsonValue.Create(false),
+            "collection" => new JsonArray(),
+            _ => JsonValue.Create(string.Empty)
+        };
+
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private void SetCallableArgumentLiteralValue(
+        CallableRuleParameter parameter,
+        string? value)
+    {
+        var arguments = GetCallableArguments();
+        switch (parameter.Type)
+        {
+            case "decimal" when decimal.TryParse(
+                value,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var decimalValue):
+                arguments[parameter.Name] = JsonValue.Create(decimalValue);
+                break;
+            case "integer" when int.TryParse(
+                value,
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var integerValue):
+                arguments[parameter.Name] = JsonValue.Create(integerValue);
+                break;
+            case "boolean":
+                arguments[parameter.Name] = JsonValue.Create(
+                    bool.TryParse(value, out var booleanValue) && booleanValue);
+                break;
+            default:
+                arguments[parameter.Name] = JsonValue.Create(value ?? string.Empty);
+                break;
+        }
+
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private void SetCallableArgumentExpression(CallableRuleParameter parameter)
+    {
+        GetCallableArguments()[parameter.Name] = CreateDefaultExpression(
+            ExpressionTypeForParameter(parameter.Type),
+            Operations,
+            ValueTypes);
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private JsonObject GetCallableArgumentNode(CallableRuleParameter parameter)
+    {
+        var arguments = GetCallableArguments();
+
+        if (arguments[parameter.Name] is JsonObject argument)
+        {
+            return argument;
+        }
+
+        argument = CreateDefaultExpression(
+            ExpressionTypeForParameter(parameter.Type),
+            Operations,
+            ValueTypes);
+        arguments[parameter.Name] = argument;
+        return argument;
+    }
+
+    private static string ExpressionTypeForParameter(string type) => type switch
+    {
+        "boolean" => "boolean",
+        "decimal" or "integer" => "decimalExpression",
+        "date" => "dateExpression",
+        "time" => "timeExpression",
+        _ => type
+    };
+
+    private JsonArray GetList(string name)
+    {
+        var inputs = GetInputs();
+        if (inputs[name] is JsonArray array) return array;
+        array = [];
+        inputs[name] = array;
+        return array;
+    }
+
+    private JsonObject GetNode(string name)
+    {
+        var inputs = GetInputs();
+        if (inputs[name] is JsonObject child) return child;
+        child = CreateDefaultExpression(ExpectedTypeForInput(name), Operations, ValueTypes);
+        inputs[name] = child;
+        return child;
+    }
+
+    private string ExpectedTypeForInput(string name) => SelectedOperation?.Inputs?.FirstOrDefault(x => x.Name == name)?.Type ?? "dynamic";
+    private JsonObject GetInputs()
+    {
+        if (Node!["inputs"] is JsonObject inputs) return inputs;
+        inputs = [];
+        Node["inputs"] = inputs;
+        return inputs;
+    }
+
+    private string GetString(string name) => GetInputs()[name]?.ToString() ?? string.Empty;
+    private string GetDataReferenceInputValue(string inputName)
+    {
+        if (_showDataReferenceResults)
+            return _dataSearch;
+
+        var selectedReference = GetString(inputName);
+        return DataReferences.FirstOrDefault(reference =>
+            string.Equals(reference.Reference, selectedReference, StringComparison.OrdinalIgnoreCase))?.DisplayName
+            ?? _dataSearch;
+    }
+
+    private void OnDataSearchChanged(string? value)
+    {
+        _dataSearch = value ?? string.Empty;
+        _showDataReferenceResults = true;
+    }
+
+    private void OnDataReferenceFocus(string inputName)
+    {
+        var selectedReference = GetString(inputName);
+        _dataSearch = DataReferences.FirstOrDefault(reference =>
+            string.Equals(reference.Reference, selectedReference, StringComparison.OrdinalIgnoreCase))?.DisplayName
+            ?? string.Empty;
+        _showDataReferenceResults = true;
+    }
+
+    private void SelectDataReference(string inputName, RuleDataReference reference)
+    {
+        SetString(inputName, reference.Reference);
+        _dataSearch = reference.DisplayName;
+        _showDataReferenceResults = false;
+    }
+
+    private bool GetBool(string name) => bool.TryParse(GetString(name), out var value) && value;
+    private void SetString(string name, string? value) { GetInputs()[name] = JsonValue.Create(value ?? string.Empty); _ = OnChanged.InvokeAsync(); }
+    private void SetNumber(string name, string? value)
+    {
+        if (decimal.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var number))
+            GetInputs()[name] = JsonValue.Create(number);
+        else if (string.IsNullOrWhiteSpace(value)) GetInputs()[name] = null;
+        _ = OnChanged.InvokeAsync();
+    }
+    private void SetTypedLiteral(string name, string type, string? value)
+    {
+        var inputs = GetInputs();
+        switch (type)
+        {
+            case "decimal" when decimal.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var number):
+                inputs[name] = JsonValue.Create(number);
+                break;
+            case "boolean":
+                inputs[name] = JsonValue.Create(bool.TryParse(value, out var boolean) && boolean);
+                break;
+            case "date":
+                if (DateOnly.TryParse(value, out var date))
+                    inputs[name] = JsonValue.Create(date.ToString("yyyy-MM-dd"));
+                else
+                    inputs[name] = JsonValue.Create(value ?? string.Empty);
+                break;
+            case "time":
+                if (TimeOnly.TryParse(value, out var time))
+                    inputs[name] = JsonValue.Create(time.ToString("HH:mm:ss"));
+                else
+                    inputs[name] = JsonValue.Create(value ?? string.Empty);
+                break;
+            default:
+                inputs[name] = JsonValue.Create(value ?? string.Empty);
+                break;
+        }
+        _ = OnChanged.InvokeAsync();
+    }
+    private void SetBool(string name, string? value)
+    {
+        GetInputs()[name] = JsonValue.Create(bool.TryParse(value, out var parsed) && parsed);
+        _ = OnChanged.InvokeAsync();
+    }
+    private void AddItem()
+    {
+        if (Steps is null || string.IsNullOrWhiteSpace(_pendingCode)) return;
+        Steps.Add(CreateDefaultNode(_pendingCode, Operations, ValueTypes));
+        _pendingCode = string.Empty;
+        _ = OnChanged.InvokeAsync();
+    }
+    private void RemoveItem(int index) { Steps?.RemoveAt(index); _ = OnChanged.InvokeAsync(); }
+    private void ToggleCollapsed() => _isCollapsed = !_isCollapsed;
+
+    private void AddSwitchCase()
+    {
+        GetList("cases").Add(new JsonObject
+        {
+            ["value"] = CreateTextCaseValue(),
+            ["steps"] = new JsonArray()
+        });
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private void RemoveSwitchCase(int index)
+    {
+        var cases = GetList("cases");
+        if (index >= 0 && index < cases.Count)
+            cases.RemoveAt(index);
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private JsonObject GetSwitchCase(int index)
+    {
+        var cases = GetList("cases");
+        if (index >= 0 && index < cases.Count && cases[index] is JsonObject existing)
+            return existing;
+
+        var created = new JsonObject { ["value"] = CreateTextCaseValue(), ["steps"] = new JsonArray() };
+        if (index >= 0 && index < cases.Count)
+            cases[index] = created;
+        return created;
+    }
+
+    private JsonArray GetSwitchCaseSteps(int index)
+    {
+        var caseObject = GetSwitchCase(index);
+        if (caseObject["steps"] is JsonArray steps)
+            return steps;
+        steps = [];
+        caseObject["steps"] = steps;
+        return steps;
+    }
+
+    private string GetSwitchCaseValue(int index)
+    {
+        var valueNode = GetSwitchCase(index)["value"];
+        if (valueNode is JsonObject expression &&
+            string.Equals(expression["code"]?.ToString(), "constant", StringComparison.OrdinalIgnoreCase) &&
+            expression["inputs"] is JsonObject expressionInputs)
+            return expressionInputs["value"]?.ToString() ?? string.Empty;
+        return valueNode is JsonValue ? valueNode.ToString() : string.Empty;
+    }
+
+    private void SetSwitchCaseValue(int index, string? value)
+    {
+        var caseObject = GetSwitchCase(index);
+        var expression = caseObject["value"] as JsonObject;
+        if (expression is null || !string.Equals(expression["code"]?.ToString(), "constant", StringComparison.OrdinalIgnoreCase))
+        {
+            expression = CreateTextCaseValue();
+            caseObject["value"] = expression;
+        }
+
+        var expressionInputs = expression["inputs"] as JsonObject;
+        if (expressionInputs is null)
+        {
+            expressionInputs = new JsonObject();
+            expression["inputs"] = expressionInputs;
+        }
+        expressionInputs["valueType"] = JsonValue.Create("text");
+        expressionInputs["value"] = JsonValue.Create(value ?? string.Empty);
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private static JsonObject CreateTextCaseValue() => new()
+    {
+        ["code"] = "constant",
+        ["inputs"] = new JsonObject { ["valueType"] = "text", ["value"] = string.Empty }
+    };
+
+    private void SetLiteralMode(string name, string type)
+    {
+        GetInputs()[name] = type switch
+        {
+            "decimal" => JsonValue.Create(0),
+            "boolean" => JsonValue.Create(false),
+            _ => JsonValue.Create(string.Empty)
+        };
+        _ = OnChanged.InvokeAsync();
+    }
+
+    private void SetExpressionMode(string name, string type)
+    {
+        GetInputs()[name] = CreateDefaultExpression(type, Operations, ValueTypes);
+        _ = OnChanged.InvokeAsync();
+    }
+
+    public static JsonObject CreateDefaultNode(string? code, IReadOnlyList<RuleOperationItem> operations, IReadOnlyList<string> valueTypes)
+    {
+        var op = operations.FirstOrDefault(x => x.Code == code) ?? operations.FirstOrDefault(x => x.Kind == "statement" || x.Kind == "block");
+        var node = new JsonObject { ["code"] = op?.Code ?? string.Empty, ["inputs"] = new JsonObject() };
+        if (op is not null)
+            foreach (var input in op.Inputs ?? [])
+                if (input.Required || input.Type != "statementList")
+                    ((JsonObject)node["inputs"]!)[input.Name] = CreateDefaultInput(input.Type, operations, valueTypes);
+        return node;
+    }
+
+    private static JsonNode? CreateDefaultInput(string type, IReadOnlyList<RuleOperationItem> operations, IReadOnlyList<string> valueTypes) => type switch
+    {
+        "statementList" => new JsonArray(),
+        "booleanExpressionList" => new JsonArray(),
+        "caseList" => new JsonArray(),
+        "valueTypeSelector" => JsonValue.Create(valueTypes.FirstOrDefault() ?? "text"),
+        "boolean" => JsonValue.Create(false),
+        "integer" => JsonValue.Create(0),
+        "dynamic" => CreateDefaultExpression(type, operations, valueTypes),
+        "booleanExpression" => CreateDefaultExpression(type, operations, valueTypes),
+        "decimalExpression" => CreateDefaultExpression(type, operations, valueTypes),
+        "dateExpression" => CreateDefaultExpression(type, operations, valueTypes),
+        "timeExpression" => CreateDefaultExpression(type, operations, valueTypes),
+        "decimal" => CreateDefaultExpression(type, operations, valueTypes),
+        "collection" => CreateDefaultExpression(type, operations, valueTypes),
+        "ruleReference" => JsonValue.Create(string.Empty),
+        "ruleArguments" => new JsonObject(),
+        _ => JsonValue.Create(string.Empty)
+    };
+
+    private static JsonObject CreateDefaultExpression(string type, IReadOnlyList<RuleOperationItem> operations, IReadOnlyList<string> valueTypes)
+    {
+        var defaultCode = type switch
+        {
+            "booleanExpression" => "equal",
+            "decimalExpression" => "constant",
+            "decimal" => "constant",
+            "dateExpression" => "constant",
+            "timeExpression" => "constant",
+            "collection" => "dataReference",
+            _ => "constant"
+        };
+        var op = operations.FirstOrDefault(x => x.Code == defaultCode) ?? operations.FirstOrDefault(x => x.Kind == "operand");
+        var node = new JsonObject { ["code"] = op?.Code ?? string.Empty, ["inputs"] = new JsonObject() };
+        if (op is not null)
+        {
+            foreach (var input in op.Inputs ?? [])
+            {
+                JsonNode? value;
+                if (op.Code == "constant" && input.Name == "valueType")
+                    value = JsonValue.Create(type == "decimalExpression" || type == "decimal" ? "decimal"
+                        : type == "dateExpression" ? "date"
+                        : type == "timeExpression" ? "time"
+                        : valueTypes.Contains(type, StringComparer.OrdinalIgnoreCase) ? type : valueTypes.FirstOrDefault() ?? "text");
+                else if (op.Code == "constant" && input.Name == "value")
+                    value = type == "decimalExpression" || type == "decimal" ? JsonValue.Create(0)
+                        : type == "booleanExpression" || type == "boolean" ? JsonValue.Create(false)
+                        : JsonValue.Create(string.Empty);
+                else
+                    value = input.Type == "dynamic"
+                        ? CreateDefaultExpression("dynamic", operations, valueTypes)
+                        : CreateDefaultInput(input.Type, operations, valueTypes);
+                ((JsonObject)node["inputs"]!)[input.Name] = value;
+            }
+        }
+        return node;
+    }
+
+    private static string InputLabel(string name) => name switch
+    {
+        "condition" => "Feltétel",
+        "thenSteps" => "Ha igaz",
+        "elseSteps" => "Ha hamis (opcionális)",
+        "left" => "Bal oldali érték",
+        "right" => "Jobb oldali érték",
+        "reference" => "Adatmező",
+        "valueType" => "Érték típusa",
+        "value" => "Érték",
+        "name" => "Változó neve",
+        "amount" => "Összeg",
+        "payrollElement" => "Bérelem",
+        "searchText" => "Keresett szöveg",
+        "items" => "Lista",
+        "itemVariable" => "Listaelem változóneve",
+        "steps" => "Végrehajtandó műveletek",
+        "digits" => "Tizedesjegyek száma",
+        "conditions" => "Feltételek",
+        "cases" => "Esetek",
+        "defaultSteps" => "Egyéb kód esetén (opcionális)",
+        "ruleCode" => "Meghívható segédszabály",
+        "arguments" => "A segédszabály bemenetei",
+        "resultVariable" => "A visszatérési érték változója",
+        _ => Humanize(name)
+    };
+    private static string Placeholder(string name, string type) => name switch
+    {
+        "name" => "Például premiumRate",
+        "payrollElement" => "Például MUNKAKORIPREMIUM",
+        "value" when type == "text" => "Írd be az értéket",
+        _ => "Add meg az értéket"
+    };
+    private static string FormatValueType(string type) => type switch
+    {
+        "text" => "Szöveg",
+        "decimal" => "Tizedes szám",
+        "date" => "Dátum",
+        "time" => "Idő",
+        "boolean" => "Igen / nem",
+        "option" => "Választólista",
+        "collection" => "Lista",
+        "integer" => "Egész szám",
+        "dynamic" => "Rugalmas típus",
+        _ => type
+    };
+    private static string Humanize(string value) => System.Text.RegularExpressions.Regex.Replace(value, "([a-z])([A-Z])", "$1 $2");
+    private static bool IsExpressionType(string type) => type.EndsWith("Expression", StringComparison.OrdinalIgnoreCase) || type == "collection" || type == "decimal";
+    private static bool IsTypedValue(string type) => type == "text" || type == "date" || type == "time" || type == "boolean" || type == "option" || type == "decimal";
+}
+
+@code {
+    public sealed record RuleOperationItem(string Code, string Category, string Kind, string DisplayName, string? Description,
+        string? ResultType, string? Symbol, List<string>? SupportedTypes, List<RuleOperationInput>? Inputs);
+    public sealed record RuleOperationInput(string Name, string Type, bool Required, string? SourceCatalog, int? MinimumItems);
+    public sealed record RuleDataReference(string Reference, string DisplayName, string? DataType, string? Category);
+    public sealed record PayrollElementChoice(int PayrollElementId, string Code, string Name, bool IsActive);
+    public sealed record CallableRuleChoice(
+        string RuleCode,
+        string Name,
+        string ReturnType,
+        bool IsActive,
+        List<CallableRuleParameter> Parameters);
+    public sealed record CallableRuleParameter(string Name, string Type);
+}

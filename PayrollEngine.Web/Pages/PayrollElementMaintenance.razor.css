@@ -1,0 +1,135 @@
+﻿.payroll-element-page {
+    width: 100%;
+    color: #101828;
+}
+
+.payroll-element-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+    .payroll-element-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+    }
+
+.payroll-element-card {
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: #fff;
+}
+
+    .payroll-element-card h2 {
+        margin: 0 0 1rem;
+        color: #344054;
+        font-size: 1.15rem;
+    }
+
+.payroll-element-search,
+.payroll-element-actions {
+    display: flex;
+    gap: 0.65rem;
+}
+
+    .payroll-element-search input {
+        flex: 1;
+    }
+
+    .payroll-element-search input,
+    .payroll-element-search select,
+    .payroll-element-form input:not([type="checkbox"]) {
+        box-sizing: border-box;
+        min-height: 42px;
+        padding: 0.6rem 0.7rem;
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        font: inherit;
+    }
+
+.payroll-element-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+    .payroll-element-form label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        color: #344054;
+        font-weight: 600;
+    }
+
+        .payroll-element-form label.payroll-element-checkbox {
+            flex-direction: row;
+            align-items: center;
+        }
+
+.payroll-element-checkbox input {
+    width: 18px;
+    height: 18px;
+}
+
+.payroll-element-table-wrap {
+    margin-top: 1rem;
+    overflow-x: auto;
+}
+
+    .payroll-element-table-wrap table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .payroll-element-table-wrap th,
+    .payroll-element-table-wrap td {
+        padding: 0.75rem;
+        border-bottom: 1px solid #eaecf0;
+        text-align: left;
+    }
+
+.payroll-element-actions {
+    justify-content: flex-end;
+    margin-top: 1.25rem;
+}
+
+.payroll-element-page button {
+    min-height: 40px;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #101828;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.payroll-element-actions .payroll-element-save {
+    border-color: #175cd3;
+    background: #175cd3;
+    color: #fff;
+}
+
+@media (max-width: 700px) {
+    .payroll-element-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+        .payroll-element-header h1 {
+            font-size: 1.45rem;
+        }
+
+    .payroll-element-search,
+    .payroll-element-actions {
+        flex-direction: column;
+    }
+
+    .payroll-element-form {
+        grid-template-columns: 1fr;
+    }
+}

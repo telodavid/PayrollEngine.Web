@@ -1,0 +1,920 @@
+﻿@namespace PayrollEngine.Web.Components
+@using System.Globalization
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+
+<section class="built-in-section">
+    <div class="selected-group-name">@SectionTitle</div>
+
+    @if (_isLoading)
+    {
+        <div class="panel-empty">Adatok betöltése…</div>
+    }
+    else if (SectionCode == "employment")
+    {
+        <div class="built-in-form">
+            <h3>Munkaviszony módosítása</h3>
+            <p>A dolgozó cégének változását új érvényességi dátummal rögzítheted.</p>
+
+            <div class="built-in-form-grid">
+                <label>
+                    Cég
+                    <select @bind="_companyId">
+                        <option value="">Válassz céget</option>
+                        @foreach (var company in _companies)
+                        {
+                            <option value="@company.CompanyId">
+                                @company.CompanyName
+                            </option>
+                        }
+                    </select>
+                </label>
+
+                <label>
+                    Érvényesség kezdete
+                    <input type="date" @bind="_validFrom" />
+                </label>
+
+                <label>
+                    Visszamenőleges számfejtés kezdete (opcionális)
+                    <input type="date" @bind="_retroPayrollRunFrom" />
+                </label>
+            </div>
+
+            <button class="edit-button"
+                    @onclick="SaveEmploymentAsync"
+                    disabled="@_isSaving">
+                @(_isSaving ? "Mentés…" : "Munkaviszony mentése")
+            </button>
+        </div>
+
+        <h3 class="built-in-subheading">Munkaviszony-előzmények</h3>
+
+        @if (_employments.Count == 0)
+        {
+            <p class="built-in-empty">Nincs megjeleníthető munkaviszony.</p>
+        }
+        else
+        {
+            <div class="built-in-table-wrap">
+                <table class="built-in-table">
+                    <thead>
+                        <tr>
+                            <th>Cég</th>
+                            <th>Kezdete</th>
+                            <th>Vége</th>
+                            <th>Azonosító</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _employments)
+                        {
+                            <tr>
+                                <td>@item.CompanyName</td>
+                                <td>@Format(item.ValidFrom)</td>
+                                <td>@Format(item.ValidTo)</td>
+                                <td>@item.EmploymentId</td>
+                                <td>
+                                    <button class="table-action"
+                                            @onclick="() => DeleteEmploymentAsync(item.EmploymentId)"
+                                            disabled="@_isSaving">
+                                        Törlés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    else if (SectionCode == "work-schedule")
+    {
+        <div class="built-in-form">
+            <h3>Munkarend hozzárendelése</h3>
+            <div class="built-in-form-grid">
+                <label>
+                    Munkarend
+                    <select @bind="_workScheduleId">
+                        <option value="">Válassz munkarendet</option>
+                        @foreach (var item in _workSchedules)
+                        {
+                            <option value="@item.WorkScheduleId">
+                                @item.Name (@item.PeriodLengthDays napos)
+                            </option>
+                        }
+                    </select>
+                </label>
+                <label>
+                    Érvényesség kezdete
+                    <input type="date" @bind="_validFrom" />
+                </label>
+                <label>
+                    Ciklus kezdőnapja
+                    <input type="date" @bind="_cycleStartDate" />
+                </label>
+                <label>
+                    Visszamenőleges számfejtés kezdete (opcionális)
+                    <input type="date" @bind="_retroPayrollRunFrom" />
+                </label>
+            </div>
+            <button class="edit-button" @onclick="SaveWorkScheduleAsync" disabled="@_isSaving">
+                @(_isSaving ? "Mentés…" : "Munkarend hozzárendelése")
+            </button>
+            @if (_workSchedules.Count == 0)
+            {
+                <p class="built-in-empty">
+                    Nincs aktív munkarend. Előbb hozz létre egyet a Munkarend-konfiguráló alkalmazásban.
+                </p>
+            }
+        </div>
+
+        <EmployeeWorkScheduleList @ref="_workScheduleList" EmployeeId="@EmployeeId" />
+    }
+    else if (SectionCode == "payroll-elements")
+    {
+        <div class="built-in-form">
+            <h3>Bérelem hozzárendelése</h3>
+            @if (_employments.Count == 0)
+            {
+                <p class="built-in-empty">Bérelem hozzárendeléséhez előbb rögzíts munkaviszonyt.</p>
+            }
+            else
+            {
+                <div class="built-in-form-grid">
+                    <label>
+                        Munkaviszony
+                        <select @bind="_employmentId">
+                            <option value="">Válassz munkaviszonyt</option>
+                            @foreach (var item in _employments)
+                            {
+                                <option value="@item.EmploymentId">
+                                    @item.CompanyName — @Format(item.ValidFrom)
+                                </option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        Bérelem
+                        <select @bind="_payrollElementId">
+                            <option value="">Válassz bérelemet</option>
+                            @foreach (var item in _payrollElementCatalog)
+                            {
+                                <option value="@item.PayrollElementId">
+                                    @item.Code — @item.Name
+                                </option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        Összeg
+                        <input type="number" step="0.01" @bind="_amount" />
+                    </label>
+                    <label>
+                        Érvényesség kezdete
+                        <input type="date" @bind="_validFrom" />
+                    </label>
+                    <label>
+                        Érvényesség vége (opcionális)
+                        <input type="date" @bind="_validTo" />
+                    </label>
+                    <label>
+                        Visszamenőleges számfejtés kezdete (opcionális)
+                        <input type="date" @bind="_retroPayrollRunFrom" />
+                    </label>
+                </div>
+                <button class="edit-button" @onclick="SavePayrollElementAsync" disabled="@_isSaving">
+                    @(_isSaving ? "Mentés…" : "Bérelem hozzárendelése")
+                </button>
+            }
+        </div>
+
+        <h3 class="built-in-subheading">Hozzárendelt bérelemek</h3>
+
+        @if (_employeePayrollElements.Count == 0)
+        {
+            <p class="built-in-empty">Nincs hozzárendelt bérelem.</p>
+        }
+        else
+        {
+            <div class="built-in-table-wrap">
+                <table class="built-in-table">
+                    <thead>
+                        <tr>
+                            <th>Bérelem</th>
+                            <th>Munkaviszony / cég</th>
+                            <th>Összeg</th>
+                            <th>Érvényes</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _employeePayrollElements)
+                        {
+                            <tr>
+                                <td>@item.PayrollElementCode — @item.PayrollElementName</td>
+                                <td>@item.CompanyName (ID: @item.EmploymentId)</td>
+                                <td>@item.Amount.ToString("N2", CultureInfo.GetCultureInfo("hu-HU"))</td>
+                                <td>@Format(item.ValidFrom) – @Format(item.ValidTo)</td>
+                                <td>
+                                    <button class="table-action"
+                                            @onclick="() => DeletePayrollElementAsync(item.EmploymentPayrollElementId)"
+                                            disabled="@_isSaving">
+                                        Törlés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    else if (SectionCode == "absences")
+    {
+        <div class="built-in-form">
+            <h3>Távollét rögzítése</h3>
+            <div class="built-in-form-grid">
+                <label>
+                    Távollét típusa
+                    <select @bind="_absenceTypeId">
+                        <option value="">Válassz típust</option>
+                        @foreach (var item in _absenceTypeCatalog)
+                        {
+                            <option value="@item.AbsenceTypeId">
+                                @item.Name (@(item.IsPaid ? "fizetett" : "nem fizetett"))
+                            </option>
+                        }
+                    </select>
+                </label>
+                <label>
+                    Kezdete
+                    <input type="date" @bind="_absenceStartDate" />
+                </label>
+                <label>
+                    Vége
+                    <input type="date" @bind="_absenceEndDate" />
+                </label>
+                <label class="built-in-checkbox">
+                    <input type="checkbox" @bind="_absenceFullDay" />
+                    Egész napos távollét
+                </label>
+                @if (!_absenceFullDay)
+                {
+                    <label>
+                        Kezdő időpont
+                        <input type="text" @bind="_absenceStartTime" />
+                    </label>
+                    <label>
+                        Befejező időpont
+                        <input type="text" @bind="_absenceEndTime" />
+                    </label>
+                }
+            </div>
+            <button class="edit-button" @onclick="SaveAbsenceAsync" disabled="@_isSaving">
+                @(_isSaving ? "Mentés…" : "Távollét rögzítése")
+            </button>
+        </div>
+
+        <h3 class="built-in-subheading">Rögzített távollétek</h3>
+        @if (_absences.Count == 0)
+        {
+            <p class="built-in-empty">Nincs rögzített távollét.</p>
+        }
+        else
+        {
+            <div class="built-in-table-wrap">
+                <table class="built-in-table">
+                    <thead>
+                        <tr><th>Típus</th><th>Időszak</th><th>Jelleg</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _absences)
+                        {
+                            <tr>
+                                <td>@item.AbsenceTypeName</td>
+                                <td>@Format(item.StartDate) – @Format(item.EndDate)</td>
+                                <td>
+                                    @(item.FullDay
+                                        ? "Egész nap"
+                                        : $"{FormatTime(item.StartTime)}–{FormatTime(item.EndTime)}")
+                                </td>
+                                <td>
+                                    <button class="table-action"
+                                            @onclick="() => DeleteAbsenceAsync(item.AbsenceId)"
+                                            disabled="@_isSaving">
+                                        Törlés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    else if (SectionCode == "payment-accounts")
+    {
+        <div class="built-in-form">
+            <h3>Fizetési számla rögzítése</h3>
+
+            <div class="built-in-form-grid">
+                <label>
+                    Számlatípus
+                    <select @bind="_accountType">
+                        <option value="BANK_ACCOUNT">Bankszámla</option>
+                        <option value="SZEP_CARD">SZÉP-kártya</option>
+                    </select>
+                </label>
+
+                <label>
+                    Számlaazonosító
+                    <input type="text" maxlength="50" @bind="_accountIdentifier" />
+                </label>
+
+                <label>
+                    Érvényesség kezdete
+                    <input type="date" @bind="_validFrom" />
+                </label>
+            </div>
+
+            <button class="edit-button"
+                    @onclick="SavePaymentAccountAsync"
+                    disabled="@_isSaving">
+                @(_isSaving ? "Mentés…" : "Számla rögzítése")
+            </button>
+        </div>
+
+        <h3 class="built-in-subheading">Fizetési számlák</h3>
+
+        @if (_paymentAccounts.Count == 0)
+        {
+            <p class="built-in-empty">Nincs rögzített fizetési számla.</p>
+        }
+        else
+        {
+            <div class="built-in-table-wrap">
+                <table class="built-in-table">
+                    <thead>
+                        <tr>
+                            <th>Típus</th>
+                            <th>Azonosító</th>
+                            <th>Érvényesség</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _paymentAccounts)
+                        {
+                            <tr>
+                                <td>
+                                    @(item.AccountType == "SZEP_CARD"
+                                        ? "SZÉP-kártya"
+                                        : "Bankszámla")
+                                </td>
+                                <td>@item.AccountIdentifier</td>
+                                <td>@Format(item.ValidFrom) – @Format(item.ValidTo)</td>
+                                <td>
+                                    <button class="table-action"
+                                            @onclick="() => DeletePaymentAccountAsync(item.EmployeeBankAccountId)"
+                                            disabled="@_isSaving">
+                                        Törlés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string SectionCode { get; set; } = string.Empty;
+    [Parameter] public int EmployeeId { get; set; }
+    [Parameter] public DateOnly? JoinDate { get; set; }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private string SectionTitle => SectionCode switch
+    {
+        "employment" => "Munkaviszony",
+        "work-schedule" => "Munkarend",
+        "payroll-elements" => "Bérelemek",
+        "absences" => "Távollétek",
+        "payment-accounts" => "Bankszámlák",
+        _ => "Beépített adatok"
+    };
+
+    private bool _isLoading = true;
+    private bool _isSaving;
+    private string _companyId = string.Empty;
+    private string _workScheduleId = string.Empty;
+    private string _employmentId = string.Empty;
+    private string _payrollElementId = string.Empty;
+    private string _absenceTypeId = string.Empty;
+    private string _accountType = "BANK_ACCOUNT";
+    private string _accountIdentifier = string.Empty;
+    private string _absenceStartTime = string.Empty;
+    private string _absenceEndTime = string.Empty;
+    private decimal _amount;
+    private DateTime _validFrom = DateTime.Today;
+    private DateTime? _validTo;
+    private DateTime? _retroPayrollRunFrom;
+    private DateTime _cycleStartDate = DateTime.Today;
+    private DateTime _absenceStartDate = DateTime.Today;
+    private DateTime _absenceEndDate = DateTime.Today;
+    private bool _absenceFullDay = true;
+
+    private List<CompanyItem> _companies = [];
+    private List<EmploymentItem> _employments = [];
+    private List<WorkScheduleItem> _workSchedules = [];
+    private EmployeeWorkScheduleList? _workScheduleList;
+    private List<PayrollElementItem> _payrollElementCatalog = [];
+    private List<EmployeePayrollElementItem> _employeePayrollElements = [];
+    private List<AbsenceTypeItem> _absenceTypeCatalog = [];
+    private List<EmployeeAbsenceItem> _absences = [];
+    private List<PaymentAccountItem> _paymentAccounts = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (JoinDate.HasValue)
+        {
+            _validFrom = JoinDate.Value.ToDateTime(TimeOnly.MinValue);
+            _cycleStartDate = _validFrom;
+        }
+
+        await LoadSectionAsync();
+    }
+    private async Task DeletePayrollElementAsync(int employmentPayrollElementId)
+    {
+        if (_isSaving)
+        {
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/employees/{EmployeeId}/payroll-elements/{employmentPayrollElementId}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A bérelem törlése sikerült.",
+                fallbackErrorMessage: "A bérelem törlése sikertelen.");
+
+            if (response.IsSuccessStatusCode)
+            {
+                _employeePayrollElements =
+                    await GetListAsync<EmployeePayrollElementItem>(
+                        $"api/employees/{EmployeeId}/payroll-elements");
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A bérelem törlése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task LoadSectionAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            switch (SectionCode)
+            {
+                case "employment":
+                    _employments = await GetListAsync<EmploymentItem>($"api/employees/{EmployeeId}/employments");
+                    _companies = await GetListAsync<CompanyItem>("api/companies");
+                    break;
+                case "work-schedule":
+                    _workSchedules = await GetListAsync<WorkScheduleItem>("api/work-schedules?isActive=true");
+                    break;
+                case "payroll-elements":
+                    _employments = await GetListAsync<EmploymentItem>($"api/employees/{EmployeeId}/employments");
+                    _payrollElementCatalog = await GetListAsync<PayrollElementItem>("api/payroll-elements?isActive=true");
+                    _employeePayrollElements = await GetListAsync<EmployeePayrollElementItem>($"api/employees/{EmployeeId}/payroll-elements");
+                    break;
+                case "absences":
+                    _absenceTypeCatalog = await GetListAsync<AbsenceTypeItem>("api/absence-types?isActive=true");
+                    _absences = await GetListAsync<EmployeeAbsenceItem>($"api/employees/{EmployeeId}/absences");
+                    break;
+                case "payment-accounts":
+                    _paymentAccounts = await GetListAsync<PaymentAccountItem>($"api/employees/{EmployeeId}/payment-accounts");
+                    break;
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A beépített törzsadatok betöltése sikertelen.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task<List<T>> GetListAsync<T>(string path)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        using var response = await Api.SendAsync(request);
+        if (!response.IsSuccessStatusCode) return [];
+        return await response.Content.ReadFromJsonAsync<List<T>>(JsonOptions) ?? [];
+    }
+
+    private async Task<bool> SendMutationAsync(
+        HttpMethod method,
+        string path,
+        object body,
+        string successMessage)
+    {
+        using var request = new HttpRequestMessage(method, path)
+        {
+            Content = JsonContent.Create(body, options: JsonOptions)
+        };
+        using var response = await Api.SendAsync(request, successMessage);
+        return response.IsSuccessStatusCode;
+    }
+
+    private async Task DeleteEmploymentAsync(int employmentId)
+    {
+        if (_isSaving)
+        {
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/employees/{EmployeeId}/employments/{employmentId}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A munkaviszony törlése sikerült.",
+                fallbackErrorMessage: "A munkaviszony törlése sikertelen.");
+
+            if (response.IsSuccessStatusCode)
+            {
+                _employments = await GetListAsync<EmploymentItem>(
+                    $"api/employees/{EmployeeId}/employments");
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A munkaviszony törlése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task SaveEmploymentAsync()
+    {
+        if (!int.TryParse(_companyId, out var companyId) || companyId <= 0)
+        {
+            Feedback.ShowError("Válassz céget.");
+            return;
+        }
+
+        await SaveAndReloadAsync(
+            HttpMethod.Post,
+            $"api/employees/{EmployeeId}/employment",
+            new
+            {
+                CompanyId = companyId,
+                ValidFrom = DateOnly.FromDateTime(_validFrom),
+                RetroPayrollRunFrom = ToDateOnly(_retroPayrollRunFrom)
+            },
+            "A munkaviszony módosítása sikerült.");
+    }
+
+    private async Task SaveWorkScheduleAsync()
+    {
+        if (!int.TryParse(_workScheduleId, out var workScheduleId) || workScheduleId <= 0)
+        {
+            Feedback.ShowError("Válassz munkarendet.");
+            return;
+        }
+
+        await SaveAndReloadAsync(
+            HttpMethod.Post,
+            $"api/employees/{EmployeeId}/work-schedule",
+            new
+            {
+                WorkScheduleId = workScheduleId,
+                ValidFrom = DateOnly.FromDateTime(_validFrom),
+                CycleStartDate = DateOnly.FromDateTime(_cycleStartDate),
+                RetroPayrollRunFrom = ToDateOnly(_retroPayrollRunFrom)
+            },
+            "A munkarend hozzárendelése sikerült.");
+
+        if (_workScheduleList is not null)
+        {
+            await _workScheduleList.ReloadAsync();
+        }
+    }
+
+    private async Task SavePayrollElementAsync()
+    {
+        if (!int.TryParse(_employmentId, out var employmentId) || employmentId <= 0 ||
+            !int.TryParse(_payrollElementId, out var payrollElementId) || payrollElementId <= 0)
+        {
+            Feedback.ShowError("Válassz munkaviszonyt és bérelemet.");
+            return;
+        }
+
+        if (_validTo.HasValue && _validTo.Value.Date < _validFrom.Date)
+        {
+            Feedback.ShowError("Az érvényesség vége nem lehet korábbi a kezdeténél.");
+            return;
+        }
+
+        await SaveAndReloadAsync(
+            HttpMethod.Post,
+            $"api/employees/{EmployeeId}/payroll-elements",
+            new
+            {
+                EmploymentId = employmentId,
+                PayrollElementId = payrollElementId,
+                ValidFrom = DateOnly.FromDateTime(_validFrom),
+                ValidTo = ToDateOnly(_validTo),
+                Amount = _amount,
+                RetroPayrollRunFrom = ToDateOnly(_retroPayrollRunFrom)
+            },
+            "A bérelem hozzárendelése sikerült.");
+    }
+    private async Task SaveAbsenceAsync()
+    {
+        if (!int.TryParse(_absenceTypeId, out var absenceTypeId) || absenceTypeId <= 0)
+        {
+            Feedback.ShowError("Válassz távolléttípust.");
+            return;
+        }
+
+        string? startTime = null;
+        string? endTime = null;
+
+        if (!_absenceFullDay)
+        {
+            if (!TimeOnly.TryParse(_absenceStartTime, out var parsedStart) ||
+                !TimeOnly.TryParse(_absenceEndTime, out var parsedEnd))
+            {
+                Feedback.ShowError("Résznapos távollétnél add meg a kezdő és a befejező időpontot.");
+                return;
+            }
+
+            startTime = parsedStart.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+            endTime = parsedEnd.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+        }
+
+        var body = new
+        {
+            AbsenceTypeId = absenceTypeId,
+            StartDate = DateOnly.FromDateTime(_absenceStartDate),
+            EndDate = DateOnly.FromDateTime(_absenceEndDate),
+            FullDay = _absenceFullDay,
+            StartTime = startTime,
+            EndTime = endTime
+        };
+
+        await SaveAndReloadAsync(
+            HttpMethod.Post,
+            $"api/employees/{EmployeeId}/absences",
+            body,
+            "A távollét rögzítése sikerült.");
+    }
+
+
+    private async Task DeleteAbsenceAsync(int absenceId)
+    {
+        if (_isSaving) return;
+
+        _isSaving = true;
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/employees/{EmployeeId}/absences/{absenceId}");
+
+            using var response = await Api.SendAsync(
+                request,
+                "A távollét törlése sikerült.");
+
+            if (response.IsSuccessStatusCode)
+            {
+                _absences = await GetListAsync<EmployeeAbsenceItem>(
+                    $"api/employees/{EmployeeId}/absences");
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A távollét törlése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task DeletePaymentAccountAsync(int employeeBankAccountId)
+    {
+        if (_isSaving)
+        {
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/employees/{EmployeeId}/payment-accounts/{employeeBankAccountId}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A bankszámla törlése sikerült.",
+                fallbackErrorMessage: "A bankszámla törlése sikertelen.");
+
+            if (response.IsSuccessStatusCode)
+            {
+                _paymentAccounts =
+                    await GetListAsync<PaymentAccountItem>(
+                        $"api/employees/{EmployeeId}/payment-accounts");
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A bankszámla törlése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task SavePaymentAccountAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_accountIdentifier))
+        {
+            Feedback.ShowError("Add meg a számlaazonosítót.");
+            return;
+        }
+
+        await SaveAndReloadAsync(
+            HttpMethod.Post,
+            $"api/employees/{EmployeeId}/payment-accounts",
+            new
+            {
+                AccountType = _accountType,
+                AccountIdentifier = _accountIdentifier.Trim(),
+                ValidFrom = DateOnly.FromDateTime(_validFrom)
+            },
+            "A fizetési számla rögzítése sikerült.");
+    }
+
+    private async Task SaveAndReloadAsync(
+        HttpMethod method,
+        string path,
+        object body,
+        string successMessage)
+    {
+        if (_isSaving) return;
+
+        _isSaving = true;
+        try
+        {
+            if (await SendMutationAsync(method, path, body, successMessage))
+            {
+                _validFrom = DateTime.Today;
+                _validTo = null;
+                _retroPayrollRunFrom = null;
+                await LoadSectionAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A módosítás mentése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private static DateOnly? ToDateOnly(DateTime? value) =>
+        value.HasValue ? DateOnly.FromDateTime(value.Value) : null;
+
+    private static string Format(DateOnly value) =>
+        value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static string Format(DateOnly? value) =>
+        value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "—";
+    private static string FormatTime(TimeOnly? value) =>
+        value?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? "—";
+
+    private sealed record CompanyItem(
+        int CompanyId,
+        string CompanyName,
+        string? CompanyAddress,
+        string? BankAccountNumber,
+        string? TaxId,
+        string? PhoneNumber);
+
+    private sealed record EmploymentItem(
+        int EmployeeId,
+        int EmploymentId,
+        int CompanyId,
+        string CompanyName,
+        DateOnly ValidFrom,
+        DateOnly? ValidTo);
+
+    private sealed record WorkScheduleItem(
+        int WorkScheduleId,
+        string Name,
+        int PeriodLengthDays,
+        bool IsActive,
+        int ConfiguredDays);
+
+    private sealed record PayrollElementItem(
+        int PayrollElementId,
+        string Code,
+        string Name,
+        bool IsActive);
+
+    private sealed record EmployeePayrollElementItem(
+        int EmployeeId,
+        int EmploymentPayrollElementId,
+        int EmploymentId,
+        int CompanyId,
+        string CompanyName,
+        int PayrollElementId,
+        string PayrollElementCode,
+        string PayrollElementName,
+        bool PayrollElementIsActive,
+        DateOnly ValidFrom,
+        DateOnly? ValidTo,
+        decimal Amount);
+
+    private sealed record AbsenceTypeItem(
+        int AbsenceTypeId,
+        string Code,
+        string Name,
+        bool IsPaid,
+        bool IsActive);
+
+    private sealed record EmployeeAbsenceItem(
+        int EmployeeId,
+        int AbsenceId,
+        int EmploymentId,
+        int AbsenceTypeId,
+        string AbsenceTypeCode,
+        string AbsenceTypeName,
+        bool IsPaid,
+        DateOnly StartDate,
+        DateOnly EndDate,
+        bool FullDay,
+        TimeOnly? StartTime,
+        TimeOnly? EndTime);
+
+    private sealed record PaymentAccountItem(
+        int EmployeeBankAccountId,
+        int EmployeeId,
+        string AccountType,
+        string AccountIdentifier,
+        DateOnly ValidFrom,
+        DateOnly? ValidTo);
+}

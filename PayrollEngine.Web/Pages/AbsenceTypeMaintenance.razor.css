@@ -1,0 +1,136 @@
+﻿.absence-page {
+    width: 100%;
+    color: #101828;
+}
+
+.absence-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+    .absence-header h1 {
+        margin: 0;
+        color: #101828;
+        font-size: 1.8rem;
+    }
+
+.absence-card {
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: #fff;
+}
+
+    .absence-card h2 {
+        margin: 0 0 1rem;
+        color: #344054;
+        font-size: 1.15rem;
+    }
+
+.absence-search,
+.absence-actions {
+    display: flex;
+    gap: 0.65rem;
+}
+
+    .absence-search input {
+        flex: 1;
+    }
+
+.absence-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+    .absence-form-grid label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        color: #344054;
+        font-weight: 600;
+    }
+
+    .absence-form-grid input:not([type="checkbox"]),
+    .absence-search input {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 42px;
+        padding: 0.6rem 0.7rem;
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        font: inherit;
+    }
+
+    .absence-form-grid .absence-checkbox {
+        flex-direction: row;
+        align-items: center;
+    }
+
+.absence-checkbox input {
+    width: 18px;
+    height: 18px;
+}
+
+.absence-table-wrap {
+    margin-top: 1rem;
+    overflow-x: auto;
+}
+
+    .absence-table-wrap table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .absence-table-wrap th,
+    .absence-table-wrap td {
+        padding: 0.75rem;
+        border-bottom: 1px solid #eaecf0;
+        text-align: left;
+    }
+
+.absence-actions {
+    justify-content: flex-end;
+    margin-top: 1.25rem;
+}
+
+.absence-page button {
+    min-height: 40px;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #101828;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.absence-actions .absence-save {
+    border-color: #175cd3;
+    background: #175cd3;
+    color: #fff;
+}
+
+@media (max-width: 700px) {
+    .absence-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+        .absence-header h1 {
+            font-size: 1.45rem;
+        }
+
+    .absence-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .absence-search,
+    .absence-actions {
+        flex-direction: column;
+    }
+}

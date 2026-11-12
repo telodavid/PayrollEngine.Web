@@ -1,0 +1,322 @@
+﻿@page "/masterdata/employee-entry"
+@using System.Text.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Munkavállaló beléptetése</PageTitle>
+
+<section class="onboarding-page">
+    <header class="onboarding-header">
+        <button type="button" class="onboarding-back-button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <h1>Munkavállaló beléptetése</h1>
+        <span></span>
+    </header>
+
+    @if (_isLoadingOptions)
+    {
+        <p class="onboarding-status">A cégek, munkarendek és bérelemek betöltése…</p>
+    }
+    else
+    {
+        <form class="onboarding-form" @onsubmit="SubmitAsync" @onsubmit:preventDefault="true">
+            <section class="onboarding-card">
+                <h2>Személyes adatok</h2>
+                <div class="onboarding-grid">
+                    <label>
+                        Vezetéknév
+                        <input @bind="_lastName" maxlength="100" required />
+                    </label>
+                    <label>
+                        Keresztnév
+                        <input @bind="_firstName" maxlength="100" required />
+                    </label>
+                    <label>
+                        Születési dátum
+                        <input type="date" @bind="_birthDate" required />
+                    </label>
+                    <label>
+                        Belépés dátuma
+                        <input type="date" @bind="_joinDate" required />
+                    </label>
+                    <label>
+                        Személyi azonosító
+                        <input @bind="_personalId" maxlength="30" required />
+                    </label>
+                    <label>
+                        Adóazonosító jel
+                        <input @bind="_taxId" maxlength="30" required />
+                    </label>
+                    <label>
+                        TAJ-szám
+                        <input @bind="_tajId" maxlength="30" required />
+                    </label>
+                    <label class="onboarding-wide">
+                        Lakcím
+                        <input @bind="_address" maxlength="500" required />
+                    </label>
+                </div>
+            </section>
+
+            <section class="onboarding-card">
+                <h2>Munkaviszony és kezdő beállítások</h2>
+                <div class="onboarding-grid">
+                    <label>
+                        Cég
+                        <select @bind="_companyId" required>
+                            <option value="">Válassz céget</option>
+                            @foreach (var company in _companies)
+                            {
+                                <option value="@company.CompanyId">@company.CompanyName</option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        Munkarend
+                        <select @bind="_workScheduleId" required>
+                            <option value="">Válassz munkarendet</option>
+                            @foreach (var schedule in _workSchedules)
+                            {
+                                <option value="@schedule.WorkScheduleId">
+                                    @schedule.Name (@schedule.PeriodLengthDays napos)
+                                </option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        Bérelem
+                        <select @bind="_payrollElementId" required>
+                            <option value="">Válassz bérelemet</option>
+                            @foreach (var element in _payrollElements)
+                            {
+                                <option value="@element.PayrollElementId">
+                                    @element.Code — @element.Name
+                                </option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        Alapbér összege
+                        <input type="number"
+                               min="0.01"
+                               step="0.01"
+                               @bind="_baseSalaryAmount"
+                               required />
+                    </label>
+                </div>
+                <p class="onboarding-hint">
+                    A beléptetés egy tranzakcióban hozza létre a dolgozót, a munkaviszonyát,
+                    a munkarend-hozzárendelését és az alapbér-bérelemét.
+                </p>
+            </section>
+
+            @if (_createdEmployeeId.HasValue)
+            {
+                <div class="onboarding-created">
+                    A beléptetés sikerült. Dolgozóazonosító: <strong>@_createdEmployeeId</strong>
+                    <button type="button" class="onboarding-open-button" @onclick="OpenCreatedEmployee">
+                        Dolgozó megnyitása
+                    </button>
+                </div>
+            }
+
+            <div class="onboarding-actions">
+                <button type="submit" class="onboarding-submit" disabled="@_isSaving">
+                    @(_isSaving ? "Mentés…" : "Munkavállaló beléptetése")
+                </button>
+            </div>
+        </form>
+    }
+</section>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private readonly List<CompanyItem> _companies = [];
+    private readonly List<WorkScheduleItem> _workSchedules = [];
+    private readonly List<PayrollElementItem> _payrollElements = [];
+
+    private string _firstName = string.Empty;
+    private string _lastName = string.Empty;
+    private string _personalId = string.Empty;
+    private string _taxId = string.Empty;
+    private string _tajId = string.Empty;
+    private string _address = string.Empty;
+    private string _companyId = string.Empty;
+    private string _workScheduleId = string.Empty;
+    private string _payrollElementId = string.Empty;
+    private DateTime? _birthDate;
+    private DateTime _joinDate = DateTime.Today;
+    private decimal? _baseSalaryAmount;
+    private int? _createdEmployeeId;
+    private bool _isLoadingOptions = true;
+    private bool _isSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOptionsAsync();
+    }
+
+    private async Task LoadOptionsAsync()
+    {
+        _isLoadingOptions = true;
+
+        try
+        {
+            var companies = await GetListAsync<CompanyItem>("api/companies");
+            var schedules = await GetListAsync<WorkScheduleItem>(
+                "api/work-schedules?isActive=true");
+            var payrollElements = await GetListAsync<PayrollElementItem>(
+                "api/payroll-elements?isActive=true");
+
+            _companies.Clear();
+            _companies.AddRange(companies);
+            _workSchedules.Clear();
+            _workSchedules.AddRange(schedules.Where(item => item.IsActive));
+            _payrollElements.Clear();
+            _payrollElements.AddRange(payrollElements.Where(item => item.IsActive));
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens megjeleníti a szerverkapcsolati hibát.
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A beléptetéshez szükséges listák betöltése sikertelen.");
+        }
+        finally
+        {
+            _isLoadingOptions = false;
+        }
+    }
+
+    private async Task<List<T>> GetListAsync<T>(string path)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        using var response = await Api.SendAsync(
+            request,
+            fallbackErrorMessage: "A beléptetéshez szükséges adatok betöltése sikertelen.");
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException("A lista lekérdezése sikertelen.");
+        }
+
+        return await response.Content.ReadFromJsonAsync<List<T>>(JsonOptions) ?? [];
+    }
+
+    private async Task SubmitAsync()
+    {
+        _createdEmployeeId = null;
+
+        if (string.IsNullOrWhiteSpace(_firstName) ||
+            string.IsNullOrWhiteSpace(_lastName) ||
+            string.IsNullOrWhiteSpace(_personalId) ||
+            string.IsNullOrWhiteSpace(_taxId) ||
+            string.IsNullOrWhiteSpace(_tajId) ||
+            string.IsNullOrWhiteSpace(_address) ||
+            !_birthDate.HasValue ||
+            !int.TryParse(_companyId, out var companyId) ||
+            !int.TryParse(_workScheduleId, out var workScheduleId) ||
+            !int.TryParse(_payrollElementId, out var payrollElementId) ||
+            !_baseSalaryAmount.HasValue || _baseSalaryAmount <= 0)
+        {
+            Feedback.ShowError("Tölts ki minden kötelező mezőt, és válassz céget, munkarendet, bérelemet, valamint adj meg pozitív alapbért.");
+            return;
+        }
+
+        if (_birthDate.Value.Date > _joinDate.Date)
+        {
+            Feedback.ShowError("A születési dátum nem lehet későbbi a belépés dátumánál.");
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                "api/employees/onboard")
+            {
+                Content = JsonContent.Create(new
+                {
+                    FirstName = _firstName.Trim(),
+                    LastName = _lastName.Trim(),
+                    BirthDate = DateOnly.FromDateTime(_birthDate.Value),
+                    PersonalId = _personalId.Trim(),
+                    TaxId = _taxId.Trim(),
+                    TAJId = _tajId.Trim(),
+                    Address = _address.Trim(),
+                    JoinDate = DateOnly.FromDateTime(_joinDate),
+                    CompanyId = companyId,
+                    WorkScheduleId = workScheduleId,
+                    PayrollElementId = payrollElementId,
+                    BaseSalaryAmount = _baseSalaryAmount
+                }, options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A munkavállaló beléptetése sikerült.");
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<OnboardingResult>(JsonOptions);
+            if (result is null || result.EmployeeId <= 0)
+            {
+                Feedback.ShowError("A beléptetés sikerült, de a dolgozóazonosítót nem sikerült beolvasni.");
+                return;
+            }
+
+            _createdEmployeeId = result.EmployeeId;
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens megjeleníti a szerverkapcsolati hibát.
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A munkavállaló beléptetése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void OpenCreatedEmployee()
+    {
+        if (_createdEmployeeId.HasValue)
+        {
+            Navigation.NavigateTo($"/employees?search={_createdEmployeeId.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+    }
+
+    private void BackToApps()
+    {
+        Navigation.NavigateTo("/apps");
+    }
+
+    private sealed record CompanyItem(int CompanyId, string CompanyName);
+
+    private sealed record WorkScheduleItem(
+        int WorkScheduleId,
+        string Name,
+        int PeriodLengthDays,
+        bool IsActive,
+        int ConfiguredDays);
+
+    private sealed record PayrollElementItem(
+        int PayrollElementId,
+        string Code,
+        string Name,
+        bool IsActive);
+
+    private sealed record OnboardingResult(int EmployeeId, string? Message);
+}

@@ -1,0 +1,893 @@
+﻿@using System.Net.Http.Json
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using System.Text.RegularExpressions
+@using PayrollEngine.Web.Services
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Számítási szabály karbantartás</PageTitle>
+
+
+
+<main class="calculation-rule-page">
+    <header class="calculation-rule-header">
+        <button type="button" class="rule-secondary" @onclick="BackToApps">Vissza az alkalmazásokhoz</button>
+        <h1>Számítási szabály karbantartás</h1>
+    </header>
+
+    <section class="rule-toolbar">
+        <div class="rule-search-card">
+            <label for="rule-search">Keresés</label>
+            <div class="rule-search-row">
+                <input id="rule-search" @bind="_search" @bind:event="oninput"
+                       @onkeydown="HandleSearchKeyDown" placeholder="Szabálykód vagy név" />
+                <button type="button" class="rule-secondary" @onclick="ShowSearchResults" disabled="@_isLoadingRules">Keresés</button>
+            </div>
+        </div>
+
+        <div class="rule-toolbar-actions">
+            <button type="button" class="rule-primary" @onclick="OpenCreateDialog">Szabály létrehozása</button>
+            <button type="button" class="rule-danger" @onclick="OpenDeleteDialog" disabled="@(_rules.Count == 0)">Szabály törlése</button>
+        </div>
+
+        <div class="rule-selected-summary">
+            @if (_selectedRule is null)
+            {
+                <div class="rule-selected-summary-identity">
+                    <span>Kiválasztott szabály</span>
+                    <strong>—</strong>
+                    <small>Keress rá vagy hozz létre egy szabályt.</small>
+                </div>
+            }
+            else
+            {
+                <div class="rule-selected-summary-identity">
+                    <span>Kiválasztott szabály</span>
+                    <strong>@_selectedRule.RuleCode</strong>
+                    <span class="rule-status @(_isActive ? "is-active" : "is-inactive")">@(_isActive ? "Aktív" : "Piszkozat")</span>
+                </div>
+                <div class="rule-top-fields">
+                    <label>
+                        Szabály neve
+                        <input @bind="_editName" maxlength="200" />
+                    </label>
+                    <label>
+                        Verzió
+                        <input type="number" @bind="_editVersion" min="1" />
+                    </label>
+                    <label>
+                        Szabály típusa
+                        <select value="@_ruleType" @onchange="ChangeRuleType">
+                            <option value="normal">Számfejtési szabály</option>
+                            <option value="callable">Meghívható segédszabály</option>
+                        </select>
+                    </label>
+                    <label class="rule-checkbox-label">
+                        <input type="checkbox" @bind="_isActive" /> Aktív
+                    </label>
+                </div>
+            }
+        </div>
+    </section>
+
+    @if (_showSearchResults)
+    {
+        <section class="rule-results-card">
+            <div class="rule-results-heading">
+                <h2>Keresési találatok</h2>
+                <button type="button" class="rule-text-button" @onclick="() => _showSearchResults = false">Bezárás</button>
+            </div>
+            @if (_isLoadingRules)
+            {
+                <p class="rule-muted">Szabályok betöltése…</p>
+            }
+            else if (!FilteredRules.Any())
+            {
+                <p class="rule-muted">Nincs a keresésnek megfelelő szabály.</p>
+            }
+            else
+            {
+                <div class="rule-result-list">
+                    @foreach (var rule in FilteredRules)
+                    {
+                        <button type="button" class="rule-result-item @(string.Equals(_selectedRule?.RuleCode, rule.RuleCode, StringComparison.OrdinalIgnoreCase) ? "is-selected" : string.Empty)" @onclick="() => SelectRuleAsync(rule.RuleCode)" @key="rule.RuleCode">
+                            <span><strong>@rule.Name</strong><small>@rule.RuleCode</small></span>
+                            <span class="rule-status @(rule.IsActive ? "is-active" : "is-inactive")">@(rule.IsActive ? "Aktív" : "Piszkozat")</span>
+                        </button>
+                    }
+                </div>
+            }
+        </section>
+    }
+
+    <section class="rule-workspace">
+        <aside class="rule-operation-panel">
+            <h2>Választható műveletek</h2>
+            <p class="rule-muted">A teljes API-katalógus. A szerkesztő az adott mezőhöz illő műveleteket kínálja fel.</p>
+            @if (_isLoadingOperations)
+            {
+                <p class="rule-muted">Műveletek betöltése…</p>
+            }
+            else if (_operations.Count == 0)
+            {
+                <p class="rule-muted">Nem sikerült betölteni a műveletkatalógust.</p>
+            }
+            else
+            {
+                @foreach (var group in _operations
+                    .OrderBy(operation => operation.Category)
+                    .GroupBy(operation => operation.Category))
+                {
+                    <div class="rule-operation-group">
+                        <h3>@FormatCategory(group.Key)</h3>
+                        @foreach (var operation in group)
+                        {
+                            <article class="rule-operation-item" @key="operation.Code">
+                                <strong>@operation.DisplayName</strong>
+                                @if (!string.IsNullOrWhiteSpace(operation.Description))
+                                {
+                                    <p>@operation.Description</p>
+                                }
+                            </article>
+                        }
+                    </div>
+                }
+            }
+        </aside>
+
+        <section class="rule-editor-panel">
+            @if (_selectedRule is null)
+            {
+                <div class="rule-editor-empty">
+                    <h2>Nincs kiválasztott szabály</h2>
+                    <p>Keress rá egy meglévő szabályra, vagy hozz létre újat.</p>
+                </div>
+            }
+            else
+            {
+                @if (_ruleType == "callable")
+                {
+                    <section class="rule-input-group rule-callable-definition">
+                        <div class="rule-builder-heading">
+                            <div>
+                                <h3>Segédszabály bemenetei</h3>
+                                <p class="rule-muted">A hívó szabály ezeknek a paramétereknek ad értéket.</p>
+                            </div>
+                            <button type="button" class="rule-secondary" @onclick="AddCallableParameter">+ Bemenet</button>
+                        </div>
+
+                        @if (_callableParameters.Count == 0)
+                        {
+                            <p class="rule-muted">Ennek a segédszabálynak nincs bemeneti paramétere.</p>
+                        }
+                        @foreach (var parameter in _callableParameters)
+                        {
+                            <div class="rule-editor-fields">
+                                <label>
+                                    Paraméternév
+                                    <input @bind="parameter.Name" @bind:event="oninput" placeholder="például workDate" />
+                                </label>
+                                <label>
+                                    Paraméter típusa
+                                    <select @bind="parameter.Type">
+                                        @foreach (var type in CallableValueTypes)
+                                        {
+                                            <option value="@type">@FormatValueType(type)</option>
+                                        }
+                                    </select>
+                                </label>
+                                <button type="button" class="rule-danger" @onclick="() => RemoveCallableParameter(parameter)">Eltávolítás</button>
+                            </div>
+                        }
+
+                        <label class="rule-primitive-input">
+                            Visszatérési érték típusa
+                            <select value="@_returnType" @onchange="ChangeReturnType">
+                                @foreach (var type in CallableValueTypes)
+                                {
+                                    <option value="@type">@FormatValueType(type)</option>
+                                }
+                            </select>
+                        </label>
+
+                        <section class="rule-input-group">
+                            <h3>Visszatérési érték *</h3>
+                            <RuleOperationEditor @key="_returnExpression"
+                                                 Node="@_returnExpression"
+                                                 Operations="_operations"
+                                                 ValueTypes="_valueTypes"
+                                                 DataReferences="_dataReferences" ListOptions="_listOptions"
+                                                 PayrollElements="_payrollElements"
+                                                 PayrollElementsLoading="_isLoadingPayrollElements"
+                                                 CallableRules="AvailableCallableRules"
+                                                 IsStatement="false"
+                                                 ExpectedType="@ReturnExpressionExpectedType"
+                                                 Depth="0"
+                                                 OnChanged="OnBuilderChanged" />
+                        </section>
+                    </section>
+                }
+
+                <section class="rule-builder">
+                    <div class="rule-builder-heading">
+                        <div>
+                            <h3>Szabály műveletei</h3>
+                            <p class="rule-muted">Válassz műveletet, majd töltsd ki a megjelenő mezőket.</p>
+                        </div>
+                    </div>
+                    @if (_steps.Count == 0)
+                    {
+                        <p class="rule-builder-empty">Még nincs művelet. A szabály felépítéséhez adj hozzá egyet.</p>
+                    }
+                    else
+                    {
+                        <div class="rule-builder-list">
+                            @for (var i = 0; i < _steps.Count; i++)
+                            {
+                                var index = i;
+                                <RuleOperationEditor @key="_steps[index]"
+                                                     Node="@((JsonObject)_steps[index]!)"
+                                                     Operations="_operations"
+                                                     ValueTypes="_valueTypes"
+                                                     DataReferences="_dataReferences" ListOptions="_listOptions"
+                                                     PayrollElements="_payrollElements"
+                                                     PayrollElementsLoading="_isLoadingPayrollElements"
+                                                     CallableRules="AvailableCallableRules"
+                                                     IsStatement="true"
+                                                     Depth="0"
+                                                     OnChanged="OnBuilderChanged"
+                                                     OnRemove="() => RemoveRootStep(index)" />
+                            }
+                        </div>
+                    }
+                    <div class="rule-root-add-footer">
+                        <select @bind="_newStepCode" aria-label="Új művelet kiválasztása">
+                            <option value="">Válassz műveletet…</option>
+                            @foreach (var operation in _operations.Where(item => item.Kind is "statement" or "block"))
+                            {
+                                <option value="@operation.Code">@operation.DisplayName</option>
+                            }
+                        </select>
+                        <button type="button" class="rule-primary" @onclick="AddRootStep" disabled="@(_isSaving || string.IsNullOrWhiteSpace(_newStepCode))">+ Művelet hozzáadása</button>
+                    </div>
+                </section>
+                <p class="rule-muted">A szabály aktiválásához legalább egy érvényes művelet szükséges.</p>
+
+                <div class="rule-editor-actions">
+                    <button type="button" class="rule-secondary" @onclick="DiscardChanges" disabled="@_isSaving">Mégse</button>
+                    <button type="button" class="rule-primary" @onclick="SaveRuleAsync" disabled="@_isSaving">
+                        @(_isSaving ? "Mentés…" : "Mentés")
+                    </button>
+                </div>
+            }
+        </section>
+    </section>
+
+    @if (_showCreateDialog)
+    {
+        <div class="rule-backdrop" @onclick="CloseCreateDialog">
+            <section class="rule-modal" role="dialog" aria-modal="true" aria-labelledby="create-rule-title" @onclick:stopPropagation="true">
+                <header>
+                    <div>
+                        <h2 id="create-rule-title">Számítási szabály létrehozása</h2>
+                        <p>Add meg az új szabály kódját és megnevezését.</p>
+                    </div>
+                    <button type="button" class="rule-close" @onclick="CloseCreateDialog" aria-label="Ablak bezárása">×</button>
+                </header>
+
+                <div class="rule-modal-form">
+                    <label>
+                        Szabálykód <span>*</span>
+                        <input @bind="_newRuleCode" @bind:event="oninput" maxlength="100" placeholder="PÉLDÁUL_ALAPBER" />
+                        <small>Csak nagybetű, szám és aláhúzás használható.</small>
+                    </label>
+                    <label>
+                        Szabály neve <span>*</span>
+                        <input @bind="_newRuleName" maxlength="200" placeholder="A szabály megnevezése" />
+                    </label>
+                </div>
+                <p class="rule-modal-note">Létrehozás után a szabály piszkozatként nyílik meg szerkesztésre.</p>
+                <div class="rule-modal-actions">
+                    <button type="button" class="rule-secondary" @onclick="CloseCreateDialog" disabled="@_isCreating">Mégse</button>
+                    <button type="button" class="rule-primary" @onclick="CreateRuleAsync" disabled="@_isCreating">
+                        @(_isCreating ? "Létrehozás…" : "Létrehozás és szerkesztés")
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+
+    @if (_showDeleteDialog)
+    {
+        <div class="rule-backdrop" @onclick="CloseDeleteDialog">
+            <section class="rule-modal" role="dialog" aria-modal="true" aria-labelledby="delete-rule-title" @onclick:stopPropagation="true">
+                <header>
+                    <div>
+                        <h2 id="delete-rule-title">Számítási szabály törlése</h2>
+                        <p>Válaszd ki a törlendő szabályt.</p>
+                    </div>
+                    <button type="button" class="rule-close" @onclick="CloseDeleteDialog" aria-label="Ablak bezárása">×</button>
+                </header>
+
+                @if (_rules.Count == 0)
+                {
+                    <p class="rule-muted">Nincs törölhető szabály.</p>
+                }
+                else
+                {
+                    <label class="rule-delete-select">
+                        Törlendő szabály
+                        <select @bind="_deleteRuleCode">
+                            <option value="">Válassz szabályt</option>
+                            @foreach (var rule in _rules)
+                            {
+                                <option value="@rule.RuleCode">@rule.RuleCode — @rule.Name</option>
+                            }
+                        </select>
+                    </label>
+                    @if (!string.IsNullOrWhiteSpace(_deleteRuleCode))
+                    {
+                        <p class="rule-delete-warning">A szabály JSON-fájlja véglegesen törlődik.</p>
+                    }
+                }
+
+                <div class="rule-modal-actions">
+                    <button type="button" class="rule-secondary" @onclick="CloseDeleteDialog" disabled="@_isDeleting">Mégse</button>
+                    <button type="button" class="rule-danger" @onclick="DeleteRuleAsync" disabled="@(_isDeleting || string.IsNullOrWhiteSpace(_deleteRuleCode))">
+                        @(_isDeleting ? "Törlés…" : "Szabály törlése")
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private readonly Dictionary<string, IReadOnlyList<RuleOperationEditor.FieldListOption>> _listOptions = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions PrettyJsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
+    private readonly List<RuleItem> _rules = [];
+    private readonly List<RuleOperationEditor.RuleOperationItem> _operations = [];
+    private readonly List<string> _valueTypes = [];
+    private readonly List<RuleOperationEditor.RuleDataReference> _dataReferences = [];
+    private readonly List<RuleOperationEditor.PayrollElementChoice> _payrollElements = [];
+    private readonly List<RuleOperationEditor.CallableRuleChoice> _callableRules = [];
+    private readonly List<CallableParameterEditor> _callableParameters = [];
+    private static readonly string[] CallableValueTypes = ["text", "decimal", "integer", "date", "time", "boolean", "option", "collection", "dynamic"];
+    private bool _isLoadingPayrollElements = true;
+    private string _search = string.Empty;
+    private string _newRuleCode = string.Empty;
+    private string _newRuleName = string.Empty;
+    private string _deleteRuleCode = string.Empty;
+    private string _newStepCode = string.Empty;
+    private string _editName = string.Empty;
+    private int _editVersion = 1;
+    private bool _isActive;
+    private JsonArray _steps = [];
+    private RuleItem? _selectedRule;
+    private bool _showSearchResults;
+    private bool _showCreateDialog;
+    private bool _showDeleteDialog;
+    private bool _isLoadingRules;
+    private bool _isLoadingOperations;
+    private bool _isCreating;
+    private bool _isDeleting;
+    private bool _isSaving;
+    private string _ruleType = "normal";
+    private string _returnType = "decimal";
+    private JsonObject? _returnExpression;
+
+    private IReadOnlyList<RuleOperationEditor.CallableRuleChoice> AvailableCallableRules =>
+        _callableRules
+            .Where(rule => !string.Equals(
+                rule.RuleCode,
+                _selectedRule?.RuleCode,
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+    private string ReturnExpressionExpectedType => _returnType switch
+    {
+        "integer" => "decimalExpression",
+        "decimal" => "decimalExpression",
+        "date" => "dateExpression",
+        "time" => "timeExpression",
+        "boolean" => "booleanExpression",
+        "collection" => "collection",
+        _ => _returnType
+    };
+
+    private IEnumerable<RuleItem> FilteredRules => _rules
+        .Where(rule => string.IsNullOrWhiteSpace(_search)
+            || rule.RuleCode.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)
+            || rule.Name.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase))
+        .OrderBy(rule => rule.RuleCode);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadRulesAsync(), LoadOperationsAsync(), LoadDataReferencesAsync(), LoadPayrollElementsAsync(), LoadCallableRulesAsync(), LoadListOptionsAsync());
+    }
+
+    private sealed record ListField(int FieldId, string MasterDataGroupCode, string Code, string FieldTypeCode);
+
+    private async Task LoadListOptionsAsync()
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/master-data-fields");
+            using var response = await Api.SendAsync(request,
+                fallbackErrorMessage: "A szabályszerkesztő választólistás mezőinek betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+            var fields = await response.Content.ReadFromJsonAsync<List<ListField>>(JsonOptions) ?? [];
+            foreach (var field in fields.Where(field => string.Equals(field.FieldTypeCode, "LIST", StringComparison.OrdinalIgnoreCase)))
+            {
+                using var optionsRequest = new HttpRequestMessage(HttpMethod.Get, $"api/master-data-fields/{field.FieldId}/options");
+                using var optionsResponse = await Api.SendAsync(optionsRequest,
+                    fallbackErrorMessage: "A szabályszerkesztő listaértékeinek betöltése sikertelen.");
+                if (!optionsResponse.IsSuccessStatusCode) continue;
+                var options = await optionsResponse.Content.ReadFromJsonAsync<List<RuleOperationEditor.FieldListOption>>(JsonOptions) ?? [];
+                _listOptions[$"{field.MasterDataGroupCode}.{field.Code}"] = options.OrderBy(option => option.SortOrder).ThenBy(option => option.DisplayName).ToArray();
+            }
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A szabályszerkesztő listaértékeinek feldolgozása sikertelen."); }
+    }
+
+    private async Task LoadRulesAsync()
+    {
+        _isLoadingRules = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/calculation-rules");
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A számítási szabályok betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var items = await response.Content.ReadFromJsonAsync<List<RuleItem>>(JsonOptions);
+            _rules.Clear();
+            _rules.AddRange(items ?? []);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A számítási szabályok betöltése közben hiba történt."); }
+        finally { _isLoadingRules = false; }
+    }
+
+    private async Task LoadOperationsAsync()
+    {
+        _isLoadingOperations = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/calculation-rules/operations");
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A műveletkatalógus betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var catalog = await response.Content.ReadFromJsonAsync<OperationCatalog>(JsonOptions);
+            _operations.Clear();
+            _operations.AddRange(catalog?.Operations ?? []);
+            _valueTypes.Clear();
+            _valueTypes.AddRange(catalog?.ValueTypes ?? []);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A műveletkatalógus betöltése közben hiba történt."); }
+        finally { _isLoadingOperations = false; }
+    }
+
+    private async Task LoadDataReferencesAsync()
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/calculation-rules/data-catalog");
+            using var response = await Api.SendAsync(request,
+                fallbackErrorMessage: "A számfejtési adatlista betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+            var result = await response.Content.ReadFromJsonAsync<DataCatalogResponse>(JsonOptions);
+            _dataReferences.Clear();
+            _dataReferences.AddRange(result?.References ?? []);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A számfejtési adatlista betöltése közben hiba történt."); }
+    }
+
+    private async Task LoadPayrollElementsAsync()
+    {
+        _isLoadingPayrollElements = true;
+        try
+        {
+            // A bérelem-karbantartó is a teljes listát kéri le, majd a felületen szűr.
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/payroll-elements");
+            using var response = await Api.SendAsync(request,
+                fallbackErrorMessage: "Az aktív bérelemek betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+            var items = await response.Content.ReadFromJsonAsync<List<RuleOperationEditor.PayrollElementChoice>>(JsonOptions);
+            _payrollElements.Clear();
+            _payrollElements.AddRange((items ?? []).Where(item => item.IsActive));
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("Az aktív bérelemek betöltése közben hiba történt."); }
+        finally { _isLoadingPayrollElements = false; }
+    }
+
+    private async Task LoadCallableRulesAsync()
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/calculation-rules/callable");
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A meghívható segédszabályok betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var items = await response.Content.ReadFromJsonAsync<List<RuleOperationEditor.CallableRuleChoice>>(JsonOptions);
+            _callableRules.Clear();
+            _callableRules.AddRange(items ?? []);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A meghívható segédszabályok betöltése közben hiba történt."); }
+    }
+
+    private void ShowSearchResults() => _showSearchResults = true;
+
+    private async Task SelectRuleAsync(string ruleCode)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/calculation-rules/{Uri.EscapeDataString(ruleCode)}");
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A számítási szabály betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var rule = await response.Content.ReadFromJsonAsync<RuleItem>(JsonOptions);
+            if (rule is null) return;
+            SetEditorRule(rule);
+            _showSearchResults = false;
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A kiválasztott szabály betöltése közben hiba történt."); }
+    }
+
+    private void SetEditorRule(RuleItem rule)
+    {
+        _selectedRule = rule;
+        _editName = rule.Name;
+        _editVersion = rule.Version;
+        _isActive = rule.IsActive;
+        _ruleType = string.Equals(rule.RuleType, "callable", StringComparison.OrdinalIgnoreCase)
+            ? "callable"
+            : "normal";
+        _callableParameters.Clear();
+        _callableParameters.AddRange((rule.Parameters ?? []).Select(parameter =>
+            new CallableParameterEditor(parameter.Name, parameter.Type)));
+        _returnType = string.IsNullOrWhiteSpace(rule.ReturnType) ? "decimal" : rule.ReturnType;
+        _returnExpression = rule.ReturnExpression is { } returnExpression &&
+                           returnExpression.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
+            ? JsonNode.Parse(returnExpression.GetRawText()) as JsonObject
+            : CreateDefaultReturnExpression(_returnType);
+        _steps = JsonNode.Parse(JsonSerializer.Serialize(rule.Steps ?? [], PrettyJsonOptions)) as JsonArray ?? [];
+    }
+
+    private void ChangeRuleType(ChangeEventArgs args)
+    {
+        _ruleType = string.Equals(args.Value?.ToString(), "callable", StringComparison.OrdinalIgnoreCase)
+            ? "callable"
+            : "normal";
+
+        if (_ruleType == "callable" && _returnExpression is null)
+        {
+            _returnExpression = CreateDefaultReturnExpression(_returnType);
+        }
+    }
+
+    private void ChangeReturnType(ChangeEventArgs args)
+    {
+        var selectedType = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(selectedType)) return;
+
+        _returnType = selectedType;
+        _returnExpression = CreateDefaultReturnExpression(_returnType);
+    }
+
+    private JsonObject CreateDefaultReturnExpression(string type)
+    {
+        var expressionType = type switch
+        {
+            "integer" or "decimal" => "decimalExpression",
+            "date" => "dateExpression",
+            "time" => "timeExpression",
+            "boolean" => "booleanExpression",
+            "collection" => "collection",
+            _ => type
+        };
+
+        var node = RuleOperationEditor.CreateDefaultNode(
+            expressionType == "collection" ? "dataReference" : "constant",
+            _operations,
+            _valueTypes);
+
+        if (node["inputs"] is JsonObject inputs && node["code"]?.ToString() == "constant")
+        {
+            var constantType = type switch
+            {
+                "integer" => "decimal",
+                "dynamic" => "text",
+                _ => type
+            };
+            inputs["valueType"] = JsonValue.Create(constantType);
+            inputs["value"] = constantType switch
+            {
+                "decimal" => JsonValue.Create(0),
+                "boolean" => JsonValue.Create(false),
+                "collection" => new JsonArray(),
+                _ => JsonValue.Create(string.Empty)
+            };
+        }
+
+        return node;
+    }
+
+    private void AddCallableParameter()
+    {
+        var index = 1;
+        string name;
+        do
+        {
+            name = $"parameter{index++}";
+        }
+        while (_callableParameters.Any(parameter =>
+            string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase)));
+
+        _callableParameters.Add(new CallableParameterEditor(name, "text"));
+    }
+
+    private void RemoveCallableParameter(CallableParameterEditor parameter) =>
+        _callableParameters.Remove(parameter);
+
+    private void OpenCreateDialog()
+    {
+        _newRuleCode = string.Empty;
+        _newRuleName = string.Empty;
+        _showCreateDialog = true;
+    }
+
+    private void CloseCreateDialog()
+    {
+        if (!_isCreating) _showCreateDialog = false;
+    }
+
+    private async Task CreateRuleAsync()
+    {
+        if (_isCreating) return;
+        _newRuleCode = _newRuleCode.Trim().ToUpperInvariant();
+        _newRuleName = _newRuleName.Trim();
+
+        if (!Regex.IsMatch(_newRuleCode, "^[A-Z0-9_]{1,100}$"))
+        {
+            Feedback.ShowError("A szabálykód csak nagybetűt, számot és aláhúzást tartalmazhat.");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_newRuleName) || _newRuleName.Length > 200)
+        {
+            Feedback.ShowError("A szabály neve nem lehet üres, és legfeljebb 200 karakter lehet.");
+            return;
+        }
+
+        _isCreating = true;
+        try
+        {
+            var requestBody = new SaveRuleRequest(
+                _newRuleCode,
+                _newRuleName,
+                1,
+                false,
+                [],
+                "normal",
+                [],
+                null,
+                null);
+            using var request = new HttpRequestMessage(HttpMethod.Post, "api/calculation-rules")
+            {
+                Content = JsonContent.Create(requestBody, options: JsonOptions)
+            };
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A szabály létrejött. Megnyitás szerkesztésre…",
+                fallbackErrorMessage: "A szabály létrehozása sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            var createdCode = _newRuleCode;
+            _showCreateDialog = false;
+            await LoadRulesAsync();
+            await SelectRuleAsync(createdCode);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A szabály létrehozása közben hiba történt."); }
+        finally { _isCreating = false; }
+    }
+
+    private void OpenDeleteDialog()
+    {
+        _deleteRuleCode = _selectedRule?.RuleCode ?? string.Empty;
+        _showDeleteDialog = true;
+    }
+
+    private void CloseDeleteDialog()
+    {
+        if (!_isDeleting) _showDeleteDialog = false;
+    }
+
+    private async Task DeleteRuleAsync()
+    {
+        if (_isDeleting || string.IsNullOrWhiteSpace(_deleteRuleCode)) return;
+
+        _isDeleting = true;
+        var deletedCode = _deleteRuleCode;
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"api/calculation-rules/{Uri.EscapeDataString(deletedCode)}");
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A számítási szabály törlése sikerült.",
+                fallbackErrorMessage: "A számítási szabály törlése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            _showDeleteDialog = false;
+            if (string.Equals(_selectedRule?.RuleCode, deletedCode, StringComparison.OrdinalIgnoreCase))
+            {
+                _selectedRule = null;
+                _steps = [];
+            }
+            await LoadRulesAsync();
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A szabály törlése közben hiba történt."); }
+        finally { _isDeleting = false; }
+    }
+
+    private async Task SaveRuleAsync()
+    {
+        if (_isSaving || _selectedRule is null) return;
+        if (string.IsNullOrWhiteSpace(_editName) || _editName.Trim().Length > 200)
+        {
+            Feedback.ShowError("A szabály neve nem lehet üres, és legfeljebb 200 karakter lehet.");
+            return;
+        }
+        if (_editVersion <= 0)
+        {
+            Feedback.ShowError("A verziószámnak pozitív egész számnak kell lennie.");
+            return;
+        }
+
+        var steps = _steps.Select(node => JsonSerializer.Deserialize<JsonElement>(node!.ToJsonString())).ToList();
+
+        _isSaving = true;
+        try
+        {
+            var body = new SaveRuleRequest(
+                _selectedRule.RuleCode,
+                _editName.Trim(),
+                _editVersion,
+                _isActive,
+                steps,
+                _ruleType,
+                _ruleType == "callable"
+                    ? _callableParameters.Select(parameter =>
+                        new RuleOperationEditor.CallableRuleParameter(
+                            parameter.Name.Trim(),
+                            parameter.Type)).ToList()
+                    : [],
+                _ruleType == "callable" ? _returnType : null,
+                _ruleType == "callable" && _returnExpression is not null
+                    ? JsonSerializer.Deserialize<JsonElement>(_returnExpression.ToJsonString())
+                    : null);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Put,
+                $"api/calculation-rules/{Uri.EscapeDataString(_selectedRule.RuleCode)}")
+            {
+                Content = JsonContent.Create(body, options: JsonOptions)
+            };
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A szabály módosításai mentésre kerültek.",
+                fallbackErrorMessage: "A szabály mentése sikertelen.");
+            if (!response.IsSuccessStatusCode) return;
+
+            await LoadRulesAsync();
+            await LoadCallableRulesAsync();
+            await SelectRuleAsync(body.RuleCode);
+        }
+        catch (HttpRequestException) { }
+        catch { Feedback.ShowError("A szabály mentése közben hiba történt."); }
+        finally { _isSaving = false; }
+    }
+
+    private void DiscardChanges()
+    {
+        if (_selectedRule is not null) SetEditorRule(_selectedRule);
+    }
+
+    private void AddRootStep()
+    {
+        if (string.IsNullOrWhiteSpace(_newStepCode)) return;
+        _steps.Add(RuleOperationEditor.CreateDefaultNode(_newStepCode, _operations, _valueTypes));
+        _newStepCode = string.Empty;
+    }
+    private void RemoveRootStep(int index) { if (index >= 0 && index < _steps.Count) _steps.RemoveAt(index); }
+    private Task OnBuilderChanged() { StateHasChanged(); return Task.CompletedTask; }
+
+    private async Task HandleSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") ShowSearchResults();
+        await Task.CompletedTask;
+    }
+
+    private static string FormatCategory(string category) => category switch
+    {
+        "value" => "Értékek",
+        "variable" => "Változók",
+        "comparison" => "Feltételek",
+        "arithmetic" => "Számítások",
+        "math" => "Számítások",
+        "logic" => "Logikai műveletek",
+        "collection" => "Listák és ciklusok",
+        "controlFlow" => "Vezérlés",
+        "payroll" => "Bérelemek",
+        "payrollResult" => "Számfejtési eredmény",
+        _ => string.IsNullOrWhiteSpace(category) ? "Egyéb" : category
+    };
+
+    private static string FormatValueType(string type) => type switch
+    {
+        "text" => "Szöveg",
+        "decimal" => "Tizedes szám",
+        "integer" => "Egész szám",
+        "date" => "Dátum",
+        "time" => "Idő",
+        "boolean" => "Igen / nem",
+        "option" => "Választólista",
+        "collection" => "Lista",
+        "dynamic" => "Rugalmas típus",
+        _ => type
+    };
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private sealed record RuleItem(
+        string RuleCode,
+        string Name,
+        int Version,
+        bool IsActive,
+        List<JsonElement> Steps,
+        string? RuleType,
+        List<RuleOperationEditor.CallableRuleParameter>? Parameters,
+        string? ReturnType,
+        JsonElement? ReturnExpression);
+
+    private sealed record OperationCatalog(List<RuleOperationEditor.RuleOperationItem> Operations, List<string>? ValueTypes);
+    private sealed record DataCatalogResponse(string? Search, int Count, List<RuleOperationEditor.RuleDataReference> References);
+    private sealed record SaveRuleRequest(
+        string RuleCode,
+        string Name,
+        int Version,
+        bool IsActive,
+        List<JsonElement> Steps,
+        string RuleType,
+        List<RuleOperationEditor.CallableRuleParameter> Parameters,
+        string? ReturnType,
+        JsonElement? ReturnExpression);
+
+    private sealed class CallableParameterEditor(string name, string type)
+    {
+        public string Name { get; set; } = name;
+        public string Type { get; set; } = type;
+    }
+}

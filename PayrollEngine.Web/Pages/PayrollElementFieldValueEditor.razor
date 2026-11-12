@@ -1,0 +1,600 @@
+﻿@using System.Globalization
+@using System.Linq
+@using System.Net.Http
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+
+<button type="button"
+        class="payroll-field-open-button"
+        @onclick="OpenAsync"
+        disabled="@(PayrollElementId <= 0 || _isLoading)">
+    Tulajdonságok kezelése
+</button>
+
+@if (_isOpen)
+{
+    <div class="payroll-field-backdrop" @onclick="Close">
+        <section class="payroll-field-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="payroll-field-dialog-title"
+                 @onclick:stopPropagation="true">
+            <header class="payroll-field-dialog-header">
+                <div>
+                    <h2 id="payroll-field-dialog-title">Bérelem-tulajdonságok</h2>
+                    <p>A kiválasztott bérelemhez tartozó tulajdonságok szerkesztése.</p>
+                </div>
+                <button type="button"
+                        class="payroll-field-close-button"
+                        aria-label="Ablak bezárása"
+                        @onclick="Close"
+                        disabled="@(_savingFieldId.HasValue)">
+                    ×
+                </button>
+            </header>
+
+            @if (_isLoading)
+            {
+                <p class="payroll-field-message">A tulajdonságok betöltése…</p>
+            }
+            else if (_groups.Count == 0)
+            {
+                <p class="payroll-field-message">Ehhez a bérelemhez nincs elérhető tulajdonságcsoport.</p>
+            }
+            else
+            {
+                <div class="payroll-field-layout">
+                    <aside class="payroll-field-groups-panel">
+                        <h3>Tulajdonságcsoportok</h3>
+                        <nav aria-label="Bérelem-tulajdonság csoportok">
+                            @foreach (var group in _groups)
+                            {
+                                <button type="button"
+                                        class="payroll-field-group-button @(group.MasterDataGroupId == _selectedGroupId ? "active" : string.Empty)"
+                                        @onclick="() => SelectGroup(group.MasterDataGroupId)">
+                                    <span>@group.Name</span>
+                                    <small>@RemovePrefix(group.Code)</small>
+                                </button>
+                            }
+                        </nav>
+                    </aside>
+
+                    <section class="payroll-field-content">
+                        @if (_selectedGroup is null)
+                        {
+                            <p class="payroll-field-message">Válassz egy csoportot a bal oldali listából.</p>
+                        }
+                        else if (_selectedGroup.Fields.Count == 0)
+                        {
+                            <p class="payroll-field-message">Ehhez a csoporthoz nincs megjeleníthető mező.</p>
+                        }
+                        else
+                        {
+                            <div class="payroll-field-group-heading">
+                                <h3>@_selectedGroup.Name</h3>
+                                <span>@RemovePrefix(_selectedGroup.Code)</span>
+                            </div>
+
+                            <div class="payroll-field-list">
+                                @foreach (var field in _selectedGroup.Fields)
+                                {
+                                    <article class="payroll-field-item" @key="field.FieldId">
+                                        <div class="payroll-field-item-heading">
+                                            <div>
+                                                <h4>@field.DisplayName</h4>
+                                                <small>@RemovePrefix(field.Code) · @field.FieldTypeName</small>
+                                            </div>
+                                            @if (field.IsRequired)
+                                            {
+                                                <span class="payroll-field-required">Kötelező</span>
+                                            }
+                                        </div>
+
+                                        @if (field.CanEdit)
+                                        {
+                                            @if (IsType(field, "LIST"))
+                                            {
+                                                <label>
+                                                    Érték
+                                                    <select @bind="field.OptionIdValue">
+                                                        <option value="">Válassz értéket</option>
+                                                        @foreach (var option in field.Options)
+                                                        {
+                                                            <option value="@option.OptionId">@option.DisplayName</option>
+                                                        }
+                                                    </select>
+                                                </label>
+                                            }
+                                            else if (IsType(field, "BOOLEAN"))
+                                            {
+                                                <label>
+                                                    Érték
+                                                    <select @bind="field.FieldValue">
+                                                        <option value="">Válassz</option>
+                                                        <option value="true">Igen</option>
+                                                        <option value="false">Nem</option>
+                                                    </select>
+                                                </label>
+                                            }
+                                            else if (IsType(field, "DATE"))
+                                            {
+                                                <label>
+                                                    Érték
+                                                    <input type="text" @bind="field.FieldValue" />
+                                                </label>
+                                            }
+                                            else if (IsType(field, "NUMBER"))
+                                            {
+                                                <label>
+                                                    Érték
+                                                    <input type="number" step="any" @bind="field.FieldValue" />
+                                                </label>
+                                            }
+                                            else
+                                            {
+                                                <label>
+                                                    Érték
+                                                    <input type="text" @bind="field.FieldValue" />
+                                                </label>
+                                            }
+
+                                            <div class="payroll-field-validity">
+                                                <label>
+                                                    Érvényesség kezdete *
+                                                    <input type="text" @bind="field.ValidFromText" />
+                                                </label>
+                                                <label>
+                                                    Érvényesség vége
+                                                    <input type="text" @bind="field.ValidToText" />
+                                                </label>
+                                            </div>
+
+                                            <div class="payroll-field-item-actions">
+                                                <button type="button"
+                                                        class="payroll-field-history-button"
+                                                        @onclick="() => OpenHistoryAsync(field)"
+                                                        disabled="@(_savingFieldId.HasValue || _historyLoading)">
+                                                    Előzmények
+                                                </button>
+                                                <button type="button"
+                                                        class="payroll-field-save-button"
+                                                        @onclick="() => SaveFieldAsync(field)"
+                                                        disabled="@_savingFieldId.HasValue">
+                                                    @(_savingFieldId == field.FieldId ? "Mentés…" : "Mentés")
+                                                </button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <p class="payroll-field-readonly">@GetDisplayValue(field)</p>
+                                            <small class="payroll-field-permission">A mező csak olvasható.</small>
+                                            <button type="button"
+                                                    class="payroll-field-history-button"
+                                                    @onclick="() => OpenHistoryAsync(field)"
+                                                    disabled="@_historyLoading">
+                                                Előzmények
+                                            </button>
+                                        }
+                                    </article>
+                                }
+                            </div>
+                        }
+                    </section>
+
+                </div>
+            }
+
+            @if (_historyField is not null)
+            {
+                <div class="payroll-field-history-backdrop" @onclick="CloseHistory">
+                    <section class="payroll-field-history-dialog"
+                             role="dialog"
+                             aria-modal="true"
+                             aria-labelledby="payroll-field-history-title"
+                             @onclick:stopPropagation="true">
+                        <header class="payroll-field-dialog-header">
+                            <div>
+                                <h2 id="payroll-field-history-title">Tulajdonság előzményei</h2>
+                                <p>@_historyField.DisplayName</p>
+                            </div>
+                            <button type="button"
+                                    class="payroll-field-close-button"
+                                    aria-label="Előzmények bezárása"
+                                    @onclick="CloseHistory">
+                                ×
+                            </button>
+                        </header>
+
+                        @if (_historyLoading)
+                        {
+                            <p class="payroll-field-message">Az előzmények betöltése…</p>
+                        }
+                        else if (_history.Count == 0)
+                        {
+                            <p class="payroll-field-message">Ehhez a tulajdonsághoz még nincs mentett érték.</p>
+                        }
+                        else
+                        {
+                            <div class="payroll-field-history-table-wrap">
+                                <table class="payroll-field-history-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Érték</th>
+                                            <th>Érvényes ettől</th>
+                                            <th>Érvényes eddig</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var entry in _history)
+                                        {
+                                            <tr @key="entry.ValidFrom">
+                                                <td>@GetHistoryValue(entry, _historyField!)</td>
+                                                <td>@FormatDate(entry.ValidFrom)</td>
+                                                <td>@(entry.ValidTo.HasValue ? FormatDate(entry.ValidTo.Value) : "Jelenleg is érvényes")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </section>
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    private const string PayrollElementPrefix = "PAYROLLELEMENT_";
+
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    [Parameter]
+    public int PayrollElementId { get; set; }
+
+    private bool _isOpen;
+    private bool _isLoading;
+    private int? _savingFieldId;
+    private int? _selectedGroupId;
+    private List<FieldGroup> _groups = [];
+    private FieldDraft? _historyField;
+    private List<FieldValueHistory> _history = [];
+    private bool _historyLoading;
+
+    private FieldGroup? _selectedGroup =>
+        _groups.FirstOrDefault(group => group.MasterDataGroupId == _selectedGroupId);
+
+    private async Task OpenAsync()
+    {
+        if (PayrollElementId <= 0 || _isLoading)
+            return;
+
+        _isOpen = true;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/payroll-elements/{PayrollElementId}/field-values");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A bérelem-tulajdonságok betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _groups = [];
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<List<FieldGroupResponse>>(JsonOptions) ?? [];
+            _groups = result
+                .Where(group => HasPrefix(group.Code))
+                .Select(group => new FieldGroup(
+                    group.MasterDataGroupId,
+                    group.Code,
+                    group.Name,
+                    group.Fields
+                        .Where(field => field.CanRead && HasPrefix(field.Code))
+                        .Select(ToDraft)
+                        .ToList()))
+                .ToList();
+
+            if (_groups.All(group => group.MasterDataGroupId != _selectedGroupId))
+                _selectedGroupId = _groups.FirstOrDefault()?.MasterDataGroupId;
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A bérelem-tulajdonságok betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SaveFieldAsync(FieldDraft field)
+    {
+        if (_savingFieldId.HasValue)
+            return;
+
+        if (!DateOnly.TryParseExact(
+                field.ValidFromText,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var validFrom))
+        {
+            Feedback.ShowError("Add meg az érvényesség kezdőnapját.");
+            return;
+        }
+
+        DateOnly? validTo = null;
+        if (!string.IsNullOrWhiteSpace(field.ValidToText))
+        {
+            if (!DateOnly.TryParseExact(
+                    field.ValidToText,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var parsedValidTo) || parsedValidTo < validFrom)
+            {
+                Feedback.ShowError("Az érvényesség vége nem lehet korábbi a kezdőnapnál.");
+                return;
+            }
+
+            validTo = parsedValidTo;
+        }
+
+        int? optionId = null;
+        string? fieldValue = field.FieldValue;
+
+        if (IsType(field, "LIST"))
+        {
+            if (int.TryParse(field.OptionIdValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedOptionId))
+                optionId = parsedOptionId;
+            fieldValue = null;
+        }
+
+        if (field.IsRequired && (IsType(field, "LIST") ? !optionId.HasValue : string.IsNullOrWhiteSpace(fieldValue)))
+        {
+            Feedback.ShowError($"A(z) „{field.DisplayName}” mező kitöltése kötelező.");
+            return;
+        }
+
+        _savingFieldId = field.FieldId;
+
+        try
+        {
+            var body = new SaveFieldValueRequest(
+                field.FieldId,
+                fieldValue,
+                optionId,
+                validFrom,
+                validTo);
+
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"api/payroll-elements/{PayrollElementId}/field-values")
+            {
+                Content = JsonContent.Create(body, options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: "A bérelem-tulajdonság mentése sikerült.",
+                fallbackErrorMessage: "A bérelem-tulajdonság mentése sikertelen.");
+
+            if (response.IsSuccessStatusCode)
+                await LoadAsync();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A bérelem-tulajdonság mentése közben hiba történt.");
+        }
+        finally
+        {
+            _savingFieldId = null;
+        }
+    }
+
+    private void SelectGroup(int groupId) => _selectedGroupId = groupId;
+
+    private async Task OpenHistoryAsync(FieldDraft field)
+    {
+        if (_historyLoading)
+            return;
+
+        _historyField = field;
+        _history = [];
+        _historyLoading = true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"api/payroll-elements/{PayrollElementId}/field-values/{field.FieldId}/history");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A tulajdonság előzményeinek betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            _history = await response.Content.ReadFromJsonAsync<List<FieldValueHistory>>(JsonOptions) ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A tulajdonság előzményeinek betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _historyLoading = false;
+        }
+    }
+
+    private void CloseHistory() => _historyField = null;
+
+    private void Close()
+    {
+        if (!_savingFieldId.HasValue)
+            _isOpen = false;
+    }
+
+    private static FieldDraft ToDraft(FieldModel field) => new(
+        field.FieldId,
+        field.Code,
+        field.DisplayName,
+        field.FieldTypeCode,
+        field.FieldTypeName,
+        field.IsRequired,
+        field.CanRead,
+        field.CanEdit,
+        field.FieldValue ?? string.Empty,
+        field.OptionId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+        field.ValidFrom?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            ?? DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        field.ValidTo?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty,
+        field.Options);
+
+    private static bool IsType(FieldDraft field, string typeCode) =>
+        string.Equals(field.FieldTypeCode, typeCode, StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasPrefix(string? code) =>
+        code?.StartsWith(PayrollElementPrefix, StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string RemovePrefix(string code) =>
+        HasPrefix(code) ? code[PayrollElementPrefix.Length..] : code;
+
+    private static string GetDisplayValue(FieldDraft field)
+    {
+        if (IsType(field, "LIST"))
+            return field.Options.FirstOrDefault(option => option.OptionId.ToString(CultureInfo.InvariantCulture) == field.OptionIdValue)?.DisplayName ?? "Nincs megadott érték";
+
+        if (IsType(field, "BOOLEAN"))
+            return field.FieldValue switch { "true" or "1" => "Igen", "false" or "0" => "Nem", _ => "Nincs megadott érték" };
+
+        return string.IsNullOrWhiteSpace(field.FieldValue) ? "Nincs megadott érték" : field.FieldValue;
+    }
+
+    private static string GetHistoryValue(FieldValueHistory entry, FieldDraft field)
+    {
+        if (IsType(field, "LIST"))
+            return entry.OptionDisplayName ?? (entry.OptionId.HasValue ? $"Listaérték #{entry.OptionId}" : "Nincs megadott érték");
+
+        if (IsType(field, "BOOLEAN"))
+            return entry.FieldValue switch { "true" or "1" => "Igen", "false" or "0" => "Nem", _ => "Nincs megadott érték" };
+
+        return string.IsNullOrWhiteSpace(entry.FieldValue) ? "Nincs megadott érték" : entry.FieldValue;
+    }
+
+    private static string FormatDate(DateOnly date) =>
+        date.ToString("yyyy. MM. dd.", CultureInfo.GetCultureInfo("hu-HU"));
+
+    private static string FormatDate(DateOnly? date) =>
+        date.HasValue ? FormatDate(date.Value) : "—";
+
+    private sealed record FieldGroupResponse(
+        int MasterDataGroupId,
+        string Code,
+        string Name,
+        List<FieldModel> Fields);
+
+    private sealed record FieldGroup(
+        int MasterDataGroupId,
+        string Code,
+        string Name,
+        List<FieldDraft> Fields);
+
+    private sealed record FieldModel(
+        int FieldId,
+        string Code,
+        string DisplayName,
+        int FieldTypeId,
+        string FieldTypeCode,
+        string FieldTypeName,
+        bool IsRequired,
+        bool IsUnique,
+        int DisplayOrder,
+        bool CanRead,
+        bool CanEdit,
+        string? FieldValue,
+        int? OptionId,
+        DateOnly? ValidFrom,
+        DateOnly? ValidTo,
+        List<FieldOption> Options);
+
+    private sealed record FieldOption(
+        int FieldId,
+        int OptionId,
+        string OptionCode,
+        string DisplayName,
+        int SortOrder);
+
+    private sealed record SaveFieldValueRequest(
+        int FieldId,
+        string? FieldValue,
+        int? OptionId,
+        DateOnly ValidFrom,
+        DateOnly? ValidTo);
+
+    private sealed record FieldValueHistory(
+        string? FieldValue,
+        int? OptionId,
+        string? OptionDisplayName,
+        DateOnly ValidFrom,
+        DateOnly? ValidTo);
+
+    private sealed class FieldDraft(
+        int fieldId,
+        string code,
+        string displayName,
+        string fieldTypeCode,
+        string fieldTypeName,
+        bool isRequired,
+        bool canRead,
+        bool canEdit,
+        string fieldValue,
+        string optionIdValue,
+        string validFromText,
+        string validToText,
+        List<FieldOption> options)
+    {
+        public int FieldId { get; } = fieldId;
+        public string Code { get; } = code;
+        public string DisplayName { get; } = displayName;
+        public string FieldTypeCode { get; } = fieldTypeCode;
+        public string FieldTypeName { get; } = fieldTypeName;
+        public bool IsRequired { get; } = isRequired;
+        public bool CanRead { get; } = canRead;
+        public bool CanEdit { get; } = canEdit;
+        public string FieldValue { get; set; } = fieldValue;
+        public string OptionIdValue { get; set; } = optionIdValue;
+        public string ValidFromText { get; set; } = validFromText;
+        public string ValidToText { get; set; } = validToText;
+        public List<FieldOption> Options { get; } = options;
+    }
+}

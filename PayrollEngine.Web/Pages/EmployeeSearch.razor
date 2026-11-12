@@ -1,0 +1,1215 @@
+﻿@page "/employees"
+@using System.Net
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using PayrollEngine.Web.Components
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject LoginSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Törzsadat-karbantartás</PageTitle>
+
+<div class="employee-page">
+    <header class="employee-header">
+        <button class="back-button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+
+        <h1>Törzsadat-karbantartás</h1>
+
+        <button type="button"
+                class="back-button app-switcher-button"
+                @onclick="ToggleAppSwitcher">
+            Alkalmazások
+        </button>
+    </header>
+
+    @if (_showAppSwitcher && Session.CurrentUser is not null)
+    {
+        <div class="modal-backdrop" @onclick="CloseAppSwitcher">
+            <section class="app-switcher-dialog"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="app-switcher-title"
+                     @onclick:stopPropagation="true">
+                <header class="dialog-header">
+                    <div>
+                        <span class="eyebrow">ALKALMAZÁSVÁLTÁS</span>
+                        <h2 id="app-switcher-title">Elérhető alkalmazások</h2>
+                    </div>
+                    <button type="button"
+                            class="close-button"
+                            aria-label="Ablak bezárása"
+                            @onclick="CloseAppSwitcher">
+                        ×
+                    </button>
+                </header>
+
+                <div class="app-switcher-list">
+                    @foreach (var app in Session.CurrentUser.Apps)
+                    {
+                        <button type="button"
+                                class="app-switcher-item"
+                                @onclick="() => OpenApp(app.Code)">
+                            @app.AppName
+                        </button>
+                    }
+                </div>
+            </section>
+        </div>
+    }
+
+    <section class="employee-toolbar">
+        <div class="search-panel">
+            <label for="employee-search">Keresés név vagy EmpoyeeID alapján</label>
+            <div class="search-row">
+                <input id="employee-search"
+                       @bind="_searchText"
+                       @bind:event="oninput"
+                       @onkeydown="HandleSearchKeyDown"
+                       placeholder="Írd be a nevet vagy EmpolyeeID-t" />
+                <button class="primary-button"
+                        @onclick="SearchEmployeesAsync"
+                        disabled="@_isBusy">
+                    @(_isBusy ? "Keresés…" : "Keresés")
+                </button>
+            </div>
+        </div>
+
+        <div class="selected-employee-card">
+            <div class="selected-name">
+                <span class="employee-card-label">Kiválasztott dolgozó</span>
+                <strong>
+                    @(_selectedEmployee is null
+                        ? "Még nincs kiválasztva"
+                        : $"{_selectedEmployee.LastName} {_selectedEmployee.FirstName}")
+                </strong>
+            </div>
+            <div class="employee-id">
+                <span class="employee-card-label">Azonosító</span>
+                <strong>
+                    @(_selectedEmployee is null
+                        ? "—"
+                        : _selectedEmployee.EmployeeId.ToString(CultureInfo.InvariantCulture))
+                </strong>
+            </div>
+        </div>
+    </section>
+
+    @if (_hasSearched && _employees.Count > 0)
+    {
+        <section class="search-results">
+            <h2>Keresési találatok</h2>
+            <div class="employee-results">
+                @foreach (var employee in _employees)
+                {
+                    <button class="employee-result @(_selectedEmployee?.EmployeeId == employee.EmployeeId ? "selected" : "")"
+                            @onclick="() => SelectEmployeeAsync(employee.EmployeeId)">
+                        <span class="employee-result-name">
+                            @employee.LastName @employee.FirstName
+                        </span>
+                        <span class="employee-result-meta">
+                            Azonosító: @employee.EmployeeId · @(employee.IsActive ? "Aktív" : "Inaktív")
+                        </span>
+                    </button>
+                }
+            </div>
+        </section>
+    }
+    else if (_hasSearched && !_isBusy &&
+             string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="search-empty">A keresés nem talált munkavállalót.</div>
+    }
+
+    @if (_selectedEmployee is not null)
+    {
+        <div class="workspace">
+            <aside class="group-sidebar">
+                <h2>Törzsadat-típusok<br />listája</h2>
+
+                <button class="group-button @(_showBasicData ? "active" : "")"
+                        @onclick="ShowBasicData">
+                    Alapadatok
+                </button>
+
+                <button class="group-button @(_showDependents ? "active" : "")"
+                        @onclick="ShowDependents">
+                    Eltartottak
+                </button>
+
+                @foreach (var section in BuiltInSections)
+                {
+                    <button class="group-button @(_selectedBuiltIn == section.Code ? "active" : "")"
+                            @onclick="() => ShowBuiltIn(section.Code)">
+                        @section.Name
+                    </button>
+                }
+
+                @if (_isLoadingGroups)
+                {
+                    <p class="sidebar-message">Jogosultságok betöltése…</p>
+                }
+                else if (_accessibleGroups.Count == 0)
+                {
+                    <p class="sidebar-message">
+                        Nincs megjeleníthető törzsadatcsoport.
+                    </p>
+                }
+                else
+                {
+                    @foreach (var group in _accessibleGroups)
+                    {
+                        <button class="group-button @(_selectedGroup?.MasterDataGroupId == group.MasterDataGroupId && !_showBasicData ? "active" : "")"
+                                @onclick="() => SelectGroupAsync(group)">
+                            <span>@group.Name</span>
+                            <span class="permission-badge">
+                                @(group.CanEdit ? "Szerkesztés" : "Olvasás")
+                            </span>
+                        </button>
+                    }
+                }
+            </aside>
+
+            <main class="content-panel">
+                <div class="data-panel-heading">
+                    <h2>Kiválasztott csoporthoz tartozó adatok</h2>
+                </div>
+
+                @if (_showBasicData)
+                {
+                    <div class="selected-group-name">Alapadatok</div>
+
+                    <div class="field-list">
+                        <article class="field-row">
+                            <div class="field-label">Vezetéknév</div>
+                            <div class="field-value">@_selectedEmployee.LastName</div>
+                            <button class="edit-button" @onclick='() => OpenBasicEdit("LastName")'>
+                                Szerkesztés
+                            </button>
+                        </article>
+
+                        <article class="field-row">
+                            <div class="field-label">Keresztnév</div>
+                            <div class="field-value">@_selectedEmployee.FirstName</div>
+                            <button class="edit-button" @onclick='() => OpenBasicEdit("FirstName")'>
+                                Szerkesztés
+                            </button>
+                        </article>
+
+                        <article class="field-row">
+                            <div class="field-label">Születési dátum</div>
+                            <div class="field-value">@FormatDate(_selectedEmployee.BirthDate)</div>
+                            <button class="edit-button" @onclick='() => OpenBasicEdit("BirthDate")'>
+                                Szerkesztés
+                            </button>
+                        </article>
+
+                        <article class="field-row">
+                            <div class="field-label">Személyi azonosító</div>
+                            <div class="field-value">@DisplayValue(_selectedEmployee.PersonalId)</div>
+                            <button class="edit-button" @onclick='() => OpenBasicEdit("PersonalId")'>
+                                Szerkesztés
+                            </button>
+                        </article>
+
+                        <article class="field-row">
+                            <div class="field-label">Adóazonosító</div>
+                            <div class="field-value">@DisplayValue(_selectedEmployee.TaxId)</div>
+                            <button class="edit-button" @onclick='() => OpenBasicEdit("TaxId")'>
+                                Szerkesztés
+                            </button>
+                        </article>
+
+                        <article class="field-row">
+                            <div class="field-label">TAJ-szám</div>
+                            <div class="field-value">@DisplayValue(_selectedEmployee.TAJId)</div>
+                            <button class="edit-button" @onclick='() => OpenBasicEdit("TAJId")'>
+                                Szerkesztés
+                            </button>
+                        </article>
+
+                        <article class="field-row">
+                            <div class="field-label">Lakcím</div>
+                            <div class="field-value">@DisplayValue(_selectedEmployee.Address)</div>
+                            <button class="edit-button" @onclick='() => OpenBasicEdit("Address")'>
+                                Szerkesztés
+                            </button>
+                        </article>
+                    </div>
+                }
+                else if (_selectedBuiltIn is not null)
+                {
+                    <EmployeeBuiltInData @key="_selectedBuiltIn"
+                                         SectionCode="@_selectedBuiltIn"
+                                         EmployeeId="_selectedEmployee.EmployeeId"
+                                         JoinDate="_selectedEmployee.JoinDate" />
+                }
+                else if (_showDependents)
+                {
+                    <div class="selected-group-name">Eltartottak</div>
+                    <EmployeeDependents EmployeeId="@_selectedEmployee.EmployeeId" />
+                }
+                else if (_selectedGroup is not null)
+                {
+                    <div class="selected-group-name">
+                        @_selectedGroup.Name
+                        <span class="group-code">@_selectedGroup.Code</span>
+                    </div>
+
+                    @if (_isLoadingFields)
+                    {
+                        <div class="panel-empty">Mezők betöltése…</div>
+                    }
+                    else if (_selectedFieldGroup is null ||
+                             _selectedFieldGroup.Fields.Count == 0)
+                    {
+                        <div class="panel-empty">
+                            Ehhez a csoporthoz nincs megjeleníthető mező.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="field-list">
+                            @foreach (var field in _selectedFieldGroup.Fields)
+                            {
+                                <article class="field-row">
+                                    <div class="field-label">
+                                        @field.DisplayName
+                                        @if (field.IsRequired)
+                                        {
+                                            <span class="required-badge">Kötelező</span>
+                                        }
+                                    </div>
+
+                                    <div class="field-value">
+                                        <span>@GetFieldValueDisplay(field)</span>
+                                        @if (field.ValidFrom.HasValue)
+                                        {
+                                            <small>
+                                                Érvényes: @FormatDate(field.ValidFrom)
+                                                – @FormatDate(field.ValidTo)
+                                            </small>
+                                        }
+                                    </div>
+
+                                    @if (field.CanEdit)
+                                    {
+                                        <button class="edit-button"
+                                                @onclick="() => OpenDynamicEdit(field)">
+                                            Szerkesztés
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="read-only-label">Csak olvasható</span>
+                                    }
+                                </article>
+                            }
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="panel-empty">
+                        Válassz egy törzsadat-típust a bal oldali listából.
+                    </div>
+                }
+            </main>
+        </div>
+    }
+    else if (!_hasSearched)
+    {
+        <div class="workspace empty-workspace">
+            <aside class="group-sidebar">
+                <h2>Törzsadat-típusok<br />listája</h2>
+                <p class="sidebar-message">
+                    A csoportok a dolgozó kiválasztása után jelennek meg.
+                </p>
+            </aside>
+            <main class="content-panel">
+                <div class="data-panel-heading">
+                    <h2>Kiválasztott csoporthoz tartozó adatok</h2>
+                </div>
+                <div class="panel-empty">
+                    Keress és válassz ki egy munkavállalót.
+                </div>
+            </main>
+        </div>
+    }
+</div>
+
+@if (_basicEditField is not null)
+{
+    <div class="modal-backdrop" @onclick="CloseBasicEdit">
+        <section class="edit-dialog" @onclick:stopPropagation="true">
+            <div class="dialog-header">
+                <div>
+                    <span class="eyebrow">ALAPADAT SZERKESZTÉSE</span>
+                    <h2>@GetBasicFieldLabel(_basicEditField)</h2>
+                </div>
+                <button class="close-button"
+                        @onclick="CloseBasicEdit"
+                        aria-label="Bezárás">
+                    ×
+                </button>
+            </div>
+
+            @if (_basicEditField == "BirthDate")
+            {
+                <label for="basic-date">Érték</label>
+                <input id="basic-date"
+                       type="date"
+                       @bind="_basicEditDateValue" />
+            }
+            else
+            {
+                <label for="basic-value">Érték</label>
+                <input id="basic-value"
+                       type="text"
+                       @bind="_basicEditValue" />
+            }
+
+            <div class="dialog-actions">
+                <button class="cancel-button"
+                        @onclick="CloseBasicEdit"
+                        disabled="@_isSaving">
+                    Mégse
+                </button>
+                <button class="edit-button"
+                        @onclick="SaveBasicEditAsync"
+                        disabled="@_isSaving">
+                    @(_isSaving ? "Mentés…" : "Mentés")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (_editField is not null)
+{
+    <div class="modal-backdrop" @onclick="CloseDynamicEdit">
+        <section class="edit-dialog" @onclick:stopPropagation="true">
+            <div class="dialog-header">
+                <div>
+                    <span class="eyebrow">MEZŐ SZERKESZTÉSE</span>
+                    <h2>@_editField.DisplayName</h2>
+                </div>
+                <button class="close-button"
+                        @onclick="CloseDynamicEdit"
+                        aria-label="Bezárás">
+                    ×
+                </button>
+            </div>
+
+            <label for="valid-from">Érvényesség kezdete</label>
+            <input id="valid-from"
+                   type="date"
+                   @bind="_editValidFrom" />
+
+            @if (IsFieldType("LIST"))
+            {
+                <label for="field-option">Érték</label>
+                <select id="field-option" @bind="_editOptionId">
+                    <option value="">Válassz értéket</option>
+                    @foreach (var option in _editField.Options)
+                    {
+                        <option value="@option.OptionId">@option.DisplayName</option>
+                    }
+                </select>
+            }
+            else if (IsFieldType("BOOLEAN"))
+            {
+                <label for="field-boolean">Érték</label>
+                <select id="field-boolean" @bind="_editValue">
+                    <option value="">Válassz</option>
+                    <option value="true">Igen</option>
+                    <option value="false">Nem</option>
+                </select>
+            }
+            else if (IsFieldType("DATE"))
+            {
+                <label for="field-date">Érték</label>
+                <input id="field-date"
+                       type="date"
+                       @bind="_editDateValue" />
+            }
+            else if (IsFieldType("NUMBER"))
+            {
+                <label for="field-number">Érték</label>
+                <input id="field-number"
+                       type="number"
+                       step="any"
+                       @bind="_editValue" />
+            }
+            else
+            {
+                <label for="field-text">Érték</label>
+                <input id="field-text"
+                       type="text"
+                       @bind="_editValue" />
+            }
+
+            <label for="retro-date">
+                Visszamenőleges számfejtés kezdete (opcionális)
+            </label>
+            <input id="retro-date"
+                   type="date"
+                   @bind="_retroPayrollRunFrom" />
+
+            <div class="dialog-actions">
+                <button class="cancel-button"
+                        @onclick="CloseDynamicEdit"
+                        disabled="@_isSaving">
+                    Mégse
+                </button>
+                <button class="edit-button"
+                        @onclick="SaveDynamicEditAsync"
+                        disabled="@_isSaving">
+                    @(_isSaving ? "Mentés…" : "Mentés")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "search")]
+    public string? InitialSearch { get; set; }
+
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private string _searchText = string.Empty;
+    private string _editValue = string.Empty;
+    private string _editOptionId = string.Empty;
+    private string _basicEditValue = string.Empty;
+
+    private string? _errorMessage;
+    private string? _basicEditField;
+
+    private DateTime _editValidFrom = DateTime.Today;
+    private DateTime? _editDateValue;
+    private DateTime? _retroPayrollRunFrom;
+    private DateTime? _basicEditDateValue;
+
+    private bool _showDependents;
+    private bool _isBusy;
+    private bool _isSaving;
+    private bool _isLoadingGroups = true;
+    private bool _isLoadingFields;
+    private bool _hasSearched;
+    private bool _showBasicData = true;
+    private string? _selectedBuiltIn;
+
+    private static readonly (string Code, string Name)[] BuiltInSections =
+    [
+        ("employment", "Munkaviszony"),
+        ("work-schedule", "Munkarend"),
+        ("payroll-elements", "Bérelemek"),
+        ("absences", "Távollétek"),
+        ("payment-accounts", "Bankszámlák")
+    ];
+    private bool _showAppSwitcher;
+
+    private List<EmployeeListItem> _employees = [];
+    private List<AccessibleGroup> _accessibleGroups = [];
+    private List<EmployeeFieldGroup> _employeeFieldGroups = [];
+
+    private EmployeeDetails? _selectedEmployee;
+    private AccessibleGroup? _selectedGroup;
+    private EmployeeFieldGroup? _selectedFieldGroup;
+    private EmployeeField? _editField;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAccessibleGroupsAsync();
+
+        if (!string.IsNullOrWhiteSpace(InitialSearch))
+        {
+            _searchText = InitialSearch;
+            await SearchEmployeesAsync();
+        }
+    }
+
+    private void BackToApps()
+    {
+        Navigation.NavigateTo("/apps");
+    }
+
+    private void ToggleAppSwitcher()
+    {
+        _showAppSwitcher = !_showAppSwitcher;
+    }
+
+    private void CloseAppSwitcher()
+    {
+        _showAppSwitcher = false;
+    }
+
+    private void OpenApp(string appCode)
+    {
+        _showAppSwitcher = false;
+        Navigation.NavigateTo($"/apps/{Uri.EscapeDataString(appCode)}");
+    }
+
+    private async Task LoadAccessibleGroupsAsync()
+    {
+        _isLoadingGroups = true;
+
+        try
+        {
+            using var response = await SendAsync(
+                HttpMethod.Get,
+                "api/master-data-groups/access");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _errorMessage = "request-failed";
+                return;
+            }
+
+            _accessibleGroups =
+                await response.Content.ReadFromJsonAsync<List<AccessibleGroup>>(
+                    JsonOptions) ?? [];
+
+            _accessibleGroups = _accessibleGroups
+                .Where(group =>
+                    group.CanRead &&
+                    !group.Code.StartsWith(
+                        "PAYROLLELEMENT_",
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderBy(group => group.Name)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A jogosultságok betöltése sikertelen.");
+        }
+        finally
+        {
+            _isLoadingGroups = false;
+        }
+    }
+
+    private async Task SearchEmployeesAsync()
+    {
+        _errorMessage = null;
+        _hasSearched = true;
+        _employees.Clear();
+        _selectedEmployee = null;
+        _selectedGroup = null;
+        _selectedFieldGroup = null;
+        _selectedBuiltIn = null;
+        _employeeFieldGroups.Clear();
+        _showBasicData = true;
+        _showDependents = false;
+
+        var search = _searchText.Trim();
+
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            Feedback.ShowError("Adj meg nevet, vagy EmployeeID-t.");
+            _errorMessage = "validation-failed";
+            return;
+        }
+
+        _isBusy = true;
+
+        try
+        {
+            if (int.TryParse(search, out var employeeId) && employeeId > 0)
+            {
+                using var response = await SendAsync(
+                    HttpMethod.Get,
+                    $"api/employees/{employeeId}");
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _errorMessage = "request-failed";
+                    return;
+                }
+
+                var employee =
+                    await response.Content.ReadFromJsonAsync<EmployeeDetails>(
+                        JsonOptions);
+
+                if (employee is not null)
+                {
+                    _employees.Add(EmployeeListItem.From(employee));
+                    await SelectEmployeeAsync(employee.EmployeeId);
+                }
+
+                return;
+            }
+
+            var path = $"api/employees?search={Uri.EscapeDataString(search)}";
+            using var searchResponse = await SendAsync(HttpMethod.Get, path);
+
+            if (!searchResponse.IsSuccessStatusCode)
+            {
+                _errorMessage = "request-failed";
+                return;
+            }
+
+            _employees =
+                await searchResponse.Content.ReadFromJsonAsync<List<EmployeeListItem>>(
+                    JsonOptions) ?? [];
+
+            if (_employees.Count == 1)
+            {
+                await SelectEmployeeAsync(_employees[0].EmployeeId);
+            }
+        }
+        catch (Exception)
+        {
+            _errorMessage = "request-failed";
+            Feedback.ShowError("A munkavállaló keresése sikertelen.");
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task SelectEmployeeAsync(int employeeId)
+    {
+        _errorMessage = null;
+        _selectedEmployee = null;
+        _selectedGroup = null;
+        _selectedFieldGroup = null;
+        _selectedBuiltIn = null;
+        _employeeFieldGroups.Clear();
+        _showBasicData = true;
+        _showDependents = false;
+
+        try
+        {
+            using var response = await SendAsync(
+                HttpMethod.Get,
+                $"api/employees/{employeeId}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _errorMessage = "request-failed";
+                return;
+            }
+
+            _selectedEmployee =
+                await response.Content.ReadFromJsonAsync<EmployeeDetails>(
+                    JsonOptions);
+
+            if (_selectedEmployee is not null)
+            {
+                await LoadEmployeeFieldsAsync();
+            }
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A dolgozó adatainak betöltése sikertelen.");
+        }
+    }
+
+    private async Task LoadEmployeeFieldsAsync()
+    {
+        if (_selectedEmployee is null)
+        {
+            return;
+        }
+
+        _isLoadingFields = true;
+
+        try
+        {
+            using var response = await SendAsync(
+                HttpMethod.Get,
+                $"api/employees/{_selectedEmployee.EmployeeId}/field-values");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _errorMessage = "request-failed";
+                return;
+            }
+
+            _employeeFieldGroups =
+                await response.Content.ReadFromJsonAsync<List<EmployeeFieldGroup>>(
+                    JsonOptions) ?? [];
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A mezők betöltése sikertelen.");
+        }
+        finally
+        {
+            _isLoadingFields = false;
+        }
+    }
+
+    private Task SelectGroupAsync(AccessibleGroup group)
+    {
+        _showBasicData = false;
+        _selectedBuiltIn = null;
+        _selectedGroup = group;
+        _selectedFieldGroup = _employeeFieldGroups.FirstOrDefault(
+            item => item.MasterDataGroupId == group.MasterDataGroupId);
+        _showDependents = false;
+
+        return Task.CompletedTask;
+    }
+
+    private void ShowBasicData()
+    {
+        _showBasicData = true;
+        _selectedBuiltIn = null;
+        _selectedGroup = null;
+        _selectedFieldGroup = null;
+        _showDependents = false;
+    }
+
+    private void ShowBuiltIn(string code)
+    {
+        _showBasicData = false;
+        _selectedBuiltIn = code;
+        _selectedGroup = null;
+        _selectedFieldGroup = null;
+    }
+
+    private void ShowDependents()
+    {
+        _showBasicData = false;
+        _showDependents = true;
+        _selectedGroup = null;
+        _selectedFieldGroup = null;
+    }
+
+    private void OpenBasicEdit(string fieldName)
+    {
+        if (_selectedEmployee is null)
+        {
+            return;
+        }
+
+        _basicEditField = fieldName;
+        _basicEditDateValue = _selectedEmployee.BirthDate?
+            .ToDateTime(TimeOnly.MinValue);
+
+        _basicEditValue = fieldName switch
+        {
+            "FirstName" => _selectedEmployee.FirstName,
+            "LastName" => _selectedEmployee.LastName,
+            "PersonalId" => _selectedEmployee.PersonalId ?? string.Empty,
+            "TaxId" => _selectedEmployee.TaxId ?? string.Empty,
+            "TAJId" => _selectedEmployee.TAJId ?? string.Empty,
+            "Address" => _selectedEmployee.Address ?? string.Empty,
+            _ => string.Empty
+        };
+    }
+
+    private void CloseBasicEdit()
+    {
+        if (_isSaving)
+        {
+            return;
+        }
+
+        _basicEditField = null;
+    }
+
+    private string GetBasicFieldLabel(string fieldName)
+    {
+        return fieldName switch
+        {
+            "FirstName" => "Keresztnév",
+            "LastName" => "Vezetéknév",
+            "BirthDate" => "Születési dátum",
+            "PersonalId" => "Személyi azonosító",
+            "TaxId" => "Adóazonosító",
+            "TAJId" => "TAJ-szám",
+            "Address" => "Lakcím",
+            _ => "Alapadat"
+        };
+    }
+
+    private async Task SaveBasicEditAsync()
+    {
+        if (_selectedEmployee is null || _basicEditField is null)
+        {
+            return;
+        }
+
+
+        if (_basicEditField == "BirthDate" &&
+            !_basicEditDateValue.HasValue)
+        {
+            Feedback.ShowError("A születési dátum megadása kötelező.");
+            return;
+        }
+
+        var employee = _selectedEmployee;
+
+        var requestBody = new UpdateEmployeeRequest(
+            FirstName: _basicEditField == "FirstName"
+                ? _basicEditValue
+                : employee.FirstName,
+            LastName: _basicEditField == "LastName"
+                ? _basicEditValue
+                : employee.LastName,
+            BirthDate: _basicEditField == "BirthDate"
+                ? DateOnly.FromDateTime(_basicEditDateValue!.Value)
+                : employee.BirthDate,
+            PersonalId: _basicEditField == "PersonalId"
+                ? _basicEditValue
+                : employee.PersonalId,
+            TaxId: _basicEditField == "TaxId"
+                ? _basicEditValue
+                : employee.TaxId,
+            TAJId: _basicEditField == "TAJId"
+                ? _basicEditValue
+                : employee.TAJId,
+            Address: _basicEditField == "Address"
+                ? _basicEditValue
+                : employee.Address);
+
+        _isSaving = true;
+
+        try
+        {
+            using var response = await SendAsync(
+                HttpMethod.Put,
+                $"api/employees/{employee.EmployeeId}",
+                requestBody);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var employeeId = employee.EmployeeId;
+            _basicEditField = null;
+
+            await SelectEmployeeAsync(employeeId);
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A munkavállaló adatainak mentése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void OpenDynamicEdit(EmployeeField field)
+    {
+        _editField = field;
+        _editValue = field.FieldValue ?? string.Empty;
+        _editOptionId = field.OptionId?.ToString(CultureInfo.InvariantCulture)
+            ?? string.Empty;
+
+        var initialDate = field.ValidFrom
+            ?? _selectedEmployee?.JoinDate
+            ?? DateOnly.FromDateTime(DateTime.Today);
+
+        _editValidFrom = initialDate.ToDateTime(TimeOnly.MinValue);
+
+        _editDateValue = DateTime.TryParse(
+            field.FieldValue,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var parsedDate)
+                ? parsedDate
+                : null;
+
+        _retroPayrollRunFrom = null;
+    }
+
+    private void CloseDynamicEdit()
+    {
+        if (_isSaving)
+        {
+            return;
+        }
+
+        _editField = null;
+    }
+
+    private async Task SaveDynamicEditAsync()
+    {
+        if (_selectedEmployee is null || _editField is null)
+        {
+            return;
+        }
+
+
+        var isList = IsFieldType("LIST");
+        var isDate = IsFieldType("DATE");
+
+        int? optionId = null;
+        string? fieldValue = null;
+
+        if (isList)
+        {
+            if (!int.TryParse(
+                    _editOptionId,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var parsedOptionId))
+            {
+                Feedback.ShowError("Válassz egy listaértéket.");
+                return;
+            }
+
+            optionId = parsedOptionId;
+        }
+        else if (isDate)
+        {
+            if (!_editDateValue.HasValue)
+            {
+                if (_editField.IsRequired)
+                {
+                    Feedback.ShowError("Adj meg dátumot.");
+                    return;
+                }
+
+                fieldValue = string.Empty;
+            }
+            else
+            {
+                fieldValue = _editDateValue.Value.ToString(
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture);
+            }
+        }
+        else
+        {
+            fieldValue = _editValue;
+
+            if (_editField.IsRequired &&
+                string.IsNullOrWhiteSpace(fieldValue))
+            {
+                Feedback.ShowError("Ez a mező kötelező.");
+                return;
+            }
+        }
+
+        DateOnly? retroDate = _retroPayrollRunFrom.HasValue
+            ? DateOnly.FromDateTime(_retroPayrollRunFrom.Value)
+            : null;
+
+        _isSaving = true;
+
+        try
+        {
+            var requestBody = new SaveEmployeeFieldValueRequest(
+                DateOnly.FromDateTime(_editValidFrom),
+                fieldValue,
+                optionId,
+                retroDate);
+
+            using var response = await SendAsync(
+                HttpMethod.Put,
+                $"api/employees/{_selectedEmployee.EmployeeId}/field-values/{_editField.FieldId}",
+                requestBody);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var result =
+                await response.Content.ReadFromJsonAsync<SaveResult>(JsonOptions);
+
+            _editField = null;
+            if (result?.RequiresRetroPayroll == true)
+            {
+                Feedback.ShowSuccess(
+                    $"A mezőérték mentése sikerült. Visszamenőleges számfejtés szükséges. Javasolt kezdete: {FormatDate(result.SuggestedPayrollRunFrom)}");
+            }
+
+            await LoadEmployeeFieldsAsync();
+
+            if (_selectedGroup is not null)
+            {
+                _selectedFieldGroup = _employeeFieldGroups.FirstOrDefault(
+                    item => item.MasterDataGroupId == _selectedGroup.MasterDataGroupId);
+            }
+        }
+        catch (Exception)
+        {
+            Feedback.ShowError("A mezőérték mentése sikertelen.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(
+        HttpMethod method,
+        string path,
+        object? body = null)
+    {
+        using var request = new HttpRequestMessage(method, path);
+
+        if (body is not null)
+        {
+            request.Content = JsonContent.Create(body, options: JsonOptions);
+        }
+
+        var successMessage = method == HttpMethod.Put
+            ? "A módosítás sikerült."
+            : null;
+        return await Api.SendAsync(request, successMessage);
+    }
+
+    private async Task HandleSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await SearchEmployeesAsync();
+        }
+    }
+
+    private bool IsFieldType(string code)
+    {
+        return string.Equals(
+            _editField?.FieldTypeCode,
+            code,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetFieldValueDisplay(EmployeeField field)
+    {
+        if (string.Equals(field.FieldTypeCode, "LIST", StringComparison.OrdinalIgnoreCase))
+        {
+            return field.Options.FirstOrDefault(
+                option => option.OptionId == field.OptionId)?.DisplayName
+                ?? "Nincs megadott érték";
+        }
+
+        if (string.Equals(field.FieldTypeCode, "BOOLEAN", StringComparison.OrdinalIgnoreCase))
+        {
+            return field.FieldValue switch
+            {
+                "true" or "1" => "Igen",
+                "false" or "0" => "Nem",
+                _ => "Nincs megadott érték"
+            };
+        }
+
+        return string.IsNullOrWhiteSpace(field.FieldValue)
+            ? "Nincs megadott érték"
+            : field.FieldValue;
+    }
+
+    private static string FormatDate(DateOnly? date)
+    {
+        return date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "—";
+    }
+
+    private static string DisplayValue(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "—" : value;
+    }
+
+    private sealed record AccessibleGroup(
+        int MasterDataGroupId,
+        string Code,
+        string Name,
+        bool CanRead,
+        bool CanEdit);
+
+    private sealed record EmployeeListItem(
+        int EmployeeId,
+        string FirstName,
+        string LastName,
+        bool IsActive,
+        DateOnly? JoinDate,
+        DateOnly? PayrollRunFrom)
+    {
+        public static EmployeeListItem From(EmployeeDetails employee)
+        {
+            return new EmployeeListItem(
+                employee.EmployeeId,
+                employee.FirstName,
+                employee.LastName,
+                employee.IsActive,
+                employee.JoinDate,
+                employee.PayrollRunFrom);
+        }
+    }
+
+    private sealed record EmployeeDetails(
+        int EmployeeId,
+        string FirstName,
+        string LastName,
+        DateOnly? BirthDate,
+        bool IsActive,
+        string? PersonalId,
+        string? TaxId,
+        string? TAJId,
+        string? Address,
+        DateOnly? PayrollRunFrom,
+        DateOnly? JoinDate);
+
+    private sealed record EmployeeFieldGroup(
+        int MasterDataGroupId,
+        string Code,
+        string Name,
+        IReadOnlyList<EmployeeField> Fields);
+
+    private sealed record EmployeeField(
+        int FieldId,
+        string Code,
+        string DisplayName,
+        int FieldTypeId,
+        string FieldTypeCode,
+        string FieldTypeName,
+        bool IsRequired,
+        bool IsUnique,
+        int DisplayOrder,
+        bool CanRead,
+        bool CanEdit,
+        string? FieldValue,
+        int? OptionId,
+        DateOnly? ValidFrom,
+        DateOnly? ValidTo,
+        IReadOnlyList<EmployeeFieldOption> Options);
+
+    private sealed record EmployeeFieldOption(
+        int FieldId,
+        int OptionId,
+        string OptionCode,
+        string DisplayName,
+        int SortOrder);
+
+    private sealed record SaveEmployeeFieldValueRequest(
+        DateOnly ValidFrom,
+        string? FieldValue,
+        int? OptionId,
+        DateOnly? RetroPayrollRunFrom);
+
+    private sealed record UpdateEmployeeRequest(
+        string? FirstName,
+        string? LastName,
+        DateOnly? BirthDate,
+        string? PersonalId,
+        string? TaxId,
+        string? TAJId,
+        string? Address);
+
+    private sealed record SaveResult(
+        int EmployeeId,
+        int FieldId,
+        DateOnly ValidFrom,
+        DateOnly? ValidTo,
+        bool RequiresRetroPayroll,
+        DateOnly? SuggestedPayrollRunFrom);
+}

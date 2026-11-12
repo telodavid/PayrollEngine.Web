@@ -1,0 +1,520 @@
+﻿@using System.Globalization
+@using System.Net.Http.Json
+@using System.Text.Json
+@using PayrollEngine.Web.Services
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Számfejtés előkészítése</PageTitle>
+
+<main class="payroll-run-page">
+    <header class="payroll-run-header">
+        <button type="button" class="run-secondary" @onclick="BackToApps">Vissza az alkalmazásokhoz</button>
+        <h1>Számfejtés előkészítése</h1>
+    </header>
+
+    <section class="run-card run-settings-card">
+        <div class="run-section-heading">
+            <div>
+                <h2>Számfejtési beállítások</h2>
+                <p>Válaszd ki az időszakot, az alkalmazandó sémát és a futási beállításokat.</p>
+            </div>
+        </div>
+
+        <div class="run-settings-grid">
+            <label>
+                Számfejtési időszak *
+                <input type="text" max="@CurrentPeriod" @bind="_period" @bind:after="PruneIneligibleSelections" />
+            </label>
+
+            <label>
+                Számfejtési séma *
+                <select @bind="_selectedSchemaCode" disabled="@(_isLoadingSchemas || _schemas.Count == 0)">
+                    <option value="">@(_isLoadingSchemas ? "Sémák betöltése…" : "Válassz aktív sémát…")</option>
+                    @foreach (var schema in _schemas.Where(item => item.IsActive).OrderBy(item => item.Name))
+                    {
+                        <option value="@schema.SchemaCode">@schema.Name (@schema.SchemaCode) · v@schema.Version</option>
+                    }
+                </select>
+            </label>
+
+            <label>
+                Visszaszámfejtés kezdő hónapja (opcionális)
+                <input type="text" max="@_period" @bind="_retroactiveFrom" />
+                <small class="run-field-help">Dolgozónként a megadott hónap és a PayrollRunFrom közül a korábbi lesz a kezdés. Ha nincs megadva, a számfejtési hónap az alap.</small>
+            </label>
+        </div>
+
+        <div class="run-flags">
+            <label class="run-flag">
+                <input type="checkbox" @bind="_isTestRun" />
+                <span><strong>Tesztfutás</strong><small>Bekapcsolva az eredmények nem kerülnek mentésre.</small></span>
+            </label>
+        </div>
+
+        @if (!_isLoadingSchemas && _schemas.All(schema => !schema.IsActive))
+        {
+            <p class="run-inline-message">Nincs aktív számfejtési séma. A futtatáshoz előbb aktiválj egy sémát.</p>
+        }
+    </section>
+
+    <section class="run-card run-employees-card">
+        <div class="run-section-heading">
+            <div>
+                <h2>Munkavállalók kiválasztása</h2>
+                <p>Keresd meg és jelöld ki, kik kerüljenek be ebbe a számfejtési futásba.</p>
+            </div>
+            <span class="run-selection-count">Kiválasztva: @_selectedEmployees.Count</span>
+        </div>
+
+        <div class="run-search-row">
+            <label class="run-search-field">
+                Keresés név vagy EmpoyeeId alapján
+                <input @bind="_employeeSearch" @bind:event="oninput" @onkeydown="HandleSearchKeyDown"
+                       placeholder="Írd be a munkavállaló nevét vagy EmpoyeeID-t" />
+            </label>
+            <button type="button" class="run-primary" @onclick="SearchEmployeesAsync" disabled="@_isSearchingEmployees">
+                @(_isSearchingEmployees ? "Keresés…" : "Keresés")
+            </button>
+        </div>
+
+        <div class="run-selection-toolbar">
+            <button type="button" class="run-secondary" @onclick="SelectAllActiveEmployeesAsync" disabled="@_isLoadingAllActive">
+                @(_isLoadingAllActive ? "Aktív dolgozók betöltése…" : "Minden aktív kiválasztása")
+            </button>
+            <span>Az időszak alapján még nem számfejthető dolgozók kimaradnak.</span>
+        </div>
+
+        @if (_hasSearched)
+        {
+            @if (_isSearchingEmployees)
+            {
+                <p class="run-muted">Munkavállalók keresése…</p>
+            }
+            else if (_searchResults.Count == 0)
+            {
+                <p class="run-muted">Nincs találat. Adj meg nevet vagy EmpoyeeID-t a kereséshez.</p>
+            }
+            else
+            {
+                <div class="run-employee-list">
+                    @foreach (var employee in _searchResults)
+                    {
+                        var isEligible = IsEligibleForPeriod(employee);
+                        <label class="run-employee-row @(isEligible ? string.Empty : "is-ineligible")" @key="employee.EmployeeId">
+                            <input type="checkbox"
+                                   checked="@_selectedEmployees.ContainsKey(employee.EmployeeId)"
+                                   @onchange="args => ToggleEmployee(employee, args.Value is true)"
+                                   disabled="@(!isEligible)" />
+                            <span class="run-employee-name">@employee.LastName @employee.FirstName</span>
+                            <span class="run-employee-meta">ID: @employee.EmployeeId · @(employee.IsActive ? "Aktív" : "Inaktív")</span>
+                            @if (!isEligible)
+                            {
+                                <span class="run-ineligible-label">A számfejtési kezdődátum későbbi ennél az időszaknál</span>
+                            }
+                        </label>
+                    }
+                </div>
+            }
+        }
+
+        @if (_selectedEmployees.Count > 0)
+        {
+            <div class="run-selected-list">
+                <div class="run-selected-heading">
+                    <h3>Kiválasztott munkavállalók</h3>
+                    <button type="button" class="run-text-button" @onclick="ClearSelectedEmployees">Kijelölés törlése</button>
+                </div>
+                <div class="run-chip-list">
+                    @foreach (var employee in _selectedEmployees.Values.OrderBy(item => item.LastName).ThenBy(item => item.FirstName))
+                    {
+                        <button type="button" class="run-employee-chip" @onclick="() => RemoveEmployee(employee.EmployeeId)" title="Eltávolítás a kijelölésből">
+                            @employee.LastName @employee.FirstName <span aria-hidden="true">×</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    </section>
+
+    <footer class="run-footer">
+        <div class="run-footer-summary">
+            <strong>@_selectedEmployees.Count munkavállaló</strong>
+            <span>@FormatPeriod(_period) · @(SelectedSchema?.Name ?? "Nincs séma kiválasztva") · @( _isTestRun ? "Tesztfutás" : "Éles futás") · Naplózás mindig bekapcsolva</span>
+        </div>
+        <button type="button" class="run-primary run-continue-button" @onclick="ContinueToReview">
+            Tovább az ellenőrzéshez
+        </button>
+    </footer>
+
+    @if (_showReview)
+    {
+        <div class="run-dialog-backdrop" @onclick="CloseReview">
+            <section class="run-dialog" role="dialog" aria-modal="true" aria-labelledby="run-review-title" @onclick:stopPropagation="true">
+                <header class="run-dialog-header">
+                    <div>
+                        <span class="run-eyebrow">KIVÁLASZTÁS ELLENŐRZÉSE</span>
+                        <h2 id="run-review-title">Számfejtési futás adatai</h2>
+                    </div>
+                    <button type="button" class="run-close-button" aria-label="Ablak bezárása" @onclick="CloseReview">×</button>
+                </header>
+                <dl class="run-review-grid">
+                    <div><dt>Időszak</dt><dd>@FormatPeriod(_period)</dd></div>
+                    <div><dt>Számfejtési időszak</dt><dd>@FormatPeriod(_period)</dd></div>
+                    <div><dt>Visszaszámfejtés kezdő hónapja</dt><dd>@(string.IsNullOrWhiteSpace(_retroactiveFrom) ? "Dolgozónként a PayrollRunFrom alapján" : FormatPeriod(_retroactiveFrom))</dd></div>
+                    <div><dt>Séma</dt><dd>@(SelectedSchema is null ? "Nincs kiválasztva" : $"{SelectedSchema.Name} ({SelectedSchema.SchemaCode}) · v{SelectedSchema.Version}")</dd></div>
+                    <div><dt>Munkavállalók</dt><dd>@_selectedEmployees.Count fő</dd></div>
+                    <div><dt>Futtatás</dt><dd>@(_isTestRun ? "Tesztfutás" : "Éles futás")</dd></div>
+                    <div><dt>Naplózás</dt><dd>Mindig bekapcsolva</dd></div>
+                </dl>
+                <div class="run-review-employees">
+                    <h3>Kijelölt munkavállalók</h3>
+                    <ul>
+                        @foreach (var employee in _selectedEmployees.Values.OrderBy(item => item.LastName).ThenBy(item => item.FirstName))
+                        {
+                            <li>@employee.LastName @employee.FirstName (ID: @employee.EmployeeId)</li>
+                        }
+                    </ul>
+                </div>
+                <p class="run-review-note">A futás befejezése után az eredményeket külön oldalon tekintheted meg, soronkénti naplóval.</p>
+                <div class="run-dialog-actions">
+                    <button type="button" class="run-secondary" @onclick="CloseReview">Vissza a módosításhoz</button>
+                    <button type="button" class="run-primary" @onclick="ExecuteRunAsync" disabled="@_isExecuting">
+                        @(_isExecuting ? "Számfejtés fut…" : _isTestRun ? "Tesztfutás indítása" : "Éles számfejtés indítása")
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private readonly List<SchemaItem> _schemas = [];
+    private readonly List<EmployeeItem> _searchResults = [];
+    private readonly Dictionary<int, EmployeeItem> _selectedEmployees = [];
+    private string _period = DateTime.Today.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+    private string _retroactiveFrom = string.Empty;
+    private string _selectedSchemaCode = string.Empty;
+    private string _employeeSearch = string.Empty;
+    private bool _isLoadingSchemas;
+    private bool _isSearchingEmployees;
+    private bool _isLoadingAllActive;
+    private bool _isTestRun = true;
+    private bool _hasSearched;
+    private bool _showReview;
+    private bool _isExecuting;
+
+    private SchemaItem? SelectedSchema => _schemas.FirstOrDefault(item =>
+        string.Equals(item.SchemaCode, _selectedSchemaCode, StringComparison.OrdinalIgnoreCase));
+    private static string CurrentPeriod => DateTime.Today.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSchemasAsync();
+    }
+
+    private async Task LoadSchemasAsync()
+    {
+        _isLoadingSchemas = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/payroll-schemas");
+            using var response = await Api.SendAsync(request, fallbackErrorMessage: "A számfejtési sémák betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var schemas = await response.Content.ReadFromJsonAsync<List<SchemaItem>>(JsonOptions) ?? [];
+            _schemas.Clear();
+            _schemas.AddRange(schemas);
+            _selectedSchemaCode = _schemas.FirstOrDefault(item => item.IsActive)?.SchemaCode ?? string.Empty;
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A számfejtési sémák betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoadingSchemas = false;
+        }
+    }
+
+    private async Task SearchEmployeesAsync()
+    {
+        if (_isSearchingEmployees)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_employeeSearch))
+        {
+            Feedback.ShowError("A munkavállaló kereséséhez adj meg nevet vagy EmpoyeeID-t.");
+            return;
+        }
+
+        _isSearchingEmployees = true;
+        _hasSearched = true;
+        try
+        {
+            var path = $"api/employees?search={Uri.EscapeDataString(_employeeSearch.Trim())}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            using var response = await Api.SendAsync(request, fallbackErrorMessage: "A munkavállalók keresése sikertelen.");
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var results = await response.Content.ReadFromJsonAsync<List<EmployeeItem>>(JsonOptions) ?? [];
+            _searchResults.Clear();
+            _searchResults.AddRange(results);
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A munkavállalók keresése közben hiba történt.");
+        }
+        finally
+        {
+            _isSearchingEmployees = false;
+        }
+    }
+
+    private async Task SelectAllActiveEmployeesAsync()
+    {
+        if (_isLoadingAllActive)
+            return;
+
+        _isLoadingAllActive = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/employees?search=");
+            using var response = await Api.SendAsync(request, fallbackErrorMessage: "Az aktív munkavállalók betöltése sikertelen.");
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var employees = await response.Content.ReadFromJsonAsync<List<EmployeeItem>>(JsonOptions) ?? [];
+            var eligibleEmployees = employees
+                .Where(IsEligibleForPeriod)
+                .ToArray();
+
+            foreach (var employee in eligibleEmployees)
+                _selectedEmployees[employee.EmployeeId] = employee;
+
+            _searchResults.Clear();
+            _searchResults.AddRange(employees);
+            _hasSearched = true;
+
+            if (eligibleEmployees.Length == 0)
+                Feedback.ShowError("Nem található az időszakra aktív, számfejthető munkavállaló.");
+            else
+                Feedback.ShowSuccess($"{eligibleEmployees.Length} aktív munkavállaló kijelölve.");
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("Az aktív munkavállalók betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoadingAllActive = false;
+        }
+    }
+
+    private Task HandleSearchKeyDown(KeyboardEventArgs args) =>
+        args.Key == "Enter" ? SearchEmployeesAsync() : Task.CompletedTask;
+
+    private void ToggleEmployee(EmployeeItem employee, bool selected)
+    {
+        if (selected && IsEligibleForPeriod(employee))
+            _selectedEmployees[employee.EmployeeId] = employee;
+        else
+            _selectedEmployees.Remove(employee.EmployeeId);
+    }
+
+    private bool IsEligibleForPeriod(EmployeeItem employee)
+    {
+        if (!employee.IsActive || !DateOnly.TryParseExact(_period + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var periodStart))
+            return false;
+
+        var periodEnd = periodStart.AddMonths(1).AddDays(-1);
+        return !employee.PayrollRunFrom.HasValue || employee.PayrollRunFrom.Value <= periodEnd;
+    }
+
+    private void RemoveEmployee(int employeeId) => _selectedEmployees.Remove(employeeId);
+    private void ClearSelectedEmployees() => _selectedEmployees.Clear();
+
+    private void PruneIneligibleSelections()
+    {
+        foreach (var employeeId in _selectedEmployees.Values
+                     .Where(employee => !IsEligibleForPeriod(employee))
+                     .Select(employee => employee.EmployeeId)
+                     .ToArray())
+        {
+            _selectedEmployees.Remove(employeeId);
+        }
+    }
+
+    private void ContinueToReview()
+    {
+        if (!TryParseMonth(_period, out var periodTo))
+        {
+            Feedback.ShowError("Adj meg érvényes számfejtési időszakot.");
+            return;
+        }
+        var currentMonth = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1);
+        if (periodTo > currentMonth)
+        {
+            Feedback.ShowError("Jövőbeli hónapra nem indítható számfejtés.");
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(_retroactiveFrom))
+        {
+            if (!TryParseMonth(_retroactiveFrom, out var periodFrom))
+            {
+                Feedback.ShowError("Adj meg érvényes visszaszámfejtési kezdő hónapot.");
+                return;
+            }
+            if (periodFrom > periodTo)
+            {
+                Feedback.ShowError("A visszaszámfejtési kezdő hónap nem lehet a számfejtési időszak után.");
+                return;
+            }
+        }
+        if (SelectedSchema is null || !SelectedSchema.IsActive)
+        {
+            Feedback.ShowError("Válassz ki egy aktív számfejtési sémát.");
+            return;
+        }
+        if (_selectedEmployees.Count == 0)
+        {
+            Feedback.ShowError("Válassz ki legalább egy aktív munkavállalót.");
+            return;
+        }
+        _showReview = true;
+    }
+
+    private async Task ExecuteRunAsync()
+    {
+        if (_isExecuting)
+            return;
+
+        if (SelectedSchema is null || _selectedEmployees.Count == 0)
+        {
+            Feedback.ShowError("Válassz aktív sémát és legalább egy munkavállalót.");
+            return;
+        }
+
+        _isExecuting = true;
+        try
+        {
+            var requestBody = new PayrollRunExecuteRequest(
+                SchemaCode: _selectedSchemaCode,
+                PeriodFrom: string.IsNullOrWhiteSpace(_retroactiveFrom)
+                    ? _period
+                    : _retroactiveFrom,
+                PeriodTo: _period,
+                EmployeeIds: _selectedEmployees.Keys.Order().ToArray(),
+                IsSimulation: _isTestRun);
+
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                "api/payroll-runs/execute")
+            {
+                Content = JsonContent.Create(requestBody, options: JsonOptions)
+            };
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A számfejtési futás indítása sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var responseText = await response.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(responseText);
+            var runId = ReadJsonText(document.RootElement, "runId");
+            if (!Guid.TryParse(runId, out var parsedRunId) || parsedRunId == Guid.Empty)
+            {
+                Feedback.ShowError("A számfejtés lefutott, de a válaszból hiányzik az érvényes futásazonosító.");
+                return;
+            }
+
+            Navigation.NavigateTo($"/payroll-runs/{parsedRunId:D}");
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch (JsonException)
+        {
+            Feedback.ShowError("A futás elindult, de az API válasza nem volt feldolgozható.");
+        }
+        catch
+        {
+            Feedback.ShowError("Hiba történt a számfejtési futás indítása közben.");
+        }
+        finally
+        {
+            _isExecuting = false;
+        }
+    }
+
+    private static bool TryGetJsonProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string? ReadJsonText(JsonElement element, string name) =>
+        TryGetJsonProperty(element, name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private void CloseReview() => _showReview = false;
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private static string FormatPeriod(string period) =>
+        TryParseMonth(period, out var month)
+            ? new DateTime(month.Year, month.Month, 1).ToString("yyyy. MMMM", CultureInfo.GetCultureInfo("hu-HU"))
+            : "Nincs megadva időszak";
+
+    private static bool TryParseMonth(string? period, out DateOnly month)
+    {
+        if (DateOnly.TryParseExact(period + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            month = new DateOnly(date.Year, date.Month, 1);
+            return true;
+        }
+        month = default;
+        return false;
+    }
+
+    private sealed record SchemaItem(string SchemaCode, string Name, int Version, bool IsActive);
+    private sealed record EmployeeItem(int EmployeeId, string FirstName, string LastName, bool IsActive, DateOnly? PayrollRunFrom);
+    private sealed record PayrollRunExecuteRequest(
+        string SchemaCode,
+        string PeriodFrom,
+        string PeriodTo,
+        IReadOnlyList<int> EmployeeIds,
+        bool IsSimulation);
+}

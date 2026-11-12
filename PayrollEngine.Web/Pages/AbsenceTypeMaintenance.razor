@@ -1,0 +1,345 @@
+﻿@using System.Text.Json
+@inject FeedbackHttpClient Api
+@inject FeedbackService Feedback
+@inject NavigationManager Navigation
+
+<PageTitle>Távolléttípus-karbantartás</PageTitle>
+
+<main class="absence-page">
+    <header class="absence-header">
+        <button type="button" @onclick="BackToApps">
+            Vissza az alkalmazásokhoz
+        </button>
+        <h1>Távolléttípus-karbantartás</h1>
+    </header>
+
+    <section class="absence-card">
+        <h2>Távolléttípusok</h2>
+
+        <div class="absence-search">
+            <input @bind="_search"
+                   @bind:event="oninput"
+                   @onkeydown="SearchOnEnter"
+                   placeholder="Keresés kód vagy név alapján" />
+            <button type="button" @onclick="LoadAsync" disabled="@_isLoading">
+                Keresés
+            </button>
+        </div>
+
+        @if (_isLoading && _items.Count == 0)
+        {
+            <p>A távolléttípusok betöltése…</p>
+        }
+        else if (_items.Count == 0)
+        {
+            <p>Nem található távolléttípus.</p>
+        }
+        else
+        {
+            <div class="absence-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kód</th>
+                            <th>Megnevezés</th>
+                            <th>Fizetett</th>
+                            <th>Állapot</th>
+                            <th>Művelet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _items)
+                        {
+                            <tr>
+                                <td>@item.Code</td>
+                                <td>@item.Name</td>
+                                <td>@(item.IsPaid ? "Igen" : "Nem")</td>
+                                <td>@(item.IsActive ? "Aktív" : "Inaktív")</td>
+                                <td>
+                                    <button type="button"
+                                            @onclick="() => EditAsync(item.AbsenceTypeId)"
+                                            disabled="@_isLoading">
+                                        Szerkesztés
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="absence-card">
+        <h2>
+            @(_absenceTypeId.HasValue
+            ? "Távolléttípus módosítása"
+            : "Új távolléttípus")
+        </h2>
+
+        <div class="absence-form-grid">
+            <label>
+                Kód *
+                <input @bind="_code" maxlength="30" required />
+            </label>
+
+            <label>
+                Megnevezés *
+                <input @bind="_name" maxlength="100" required />
+            </label>
+
+            <label class="absence-checkbox">
+                <input type="checkbox" @bind="_isPaid" />
+                Fizetett távollét
+            </label>
+
+            @if (_absenceTypeId.HasValue)
+            {
+                <label class="absence-checkbox">
+                    <input type="checkbox" @bind="_isActive" />
+                    Aktív
+                </label>
+            }
+        </div>
+
+        <div class="absence-actions">
+            @if (_absenceTypeId.HasValue)
+            {
+                <button type="button" @onclick="NewItem" disabled="@_isSaving">
+                    Új távolléttípus
+                </button>
+            }
+
+            <button type="button"
+                    class="absence-save"
+                    @onclick="SaveAsync"
+                    disabled="@_isSaving">
+                @(_isSaving
+                    ? "Mentés…"
+                    : _absenceTypeId.HasValue
+                        ? "Módosítások mentése"
+                        : "Létrehozás")
+            </button>
+        </div>
+    </section>
+</main>
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+    private string _search = string.Empty;
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private bool _isPaid;
+    private bool _isActive = true;
+    private int? _absenceTypeId;
+    private bool _isLoading;
+    private bool _isSaving;
+
+    private List<AbsenceTypeItem> _items = [];
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (_isLoading)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            var search = _search.Trim();
+            var url = string.IsNullOrWhiteSpace(search)
+                ? "api/absence-types"
+                : $"api/absence-types?search={Uri.EscapeDataString(search)}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A távolléttípusok betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _items = [];
+                return;
+            }
+
+            _items =
+                await response.Content.ReadFromJsonAsync<List<AbsenceTypeItem>>(JsonOptions) ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A távolléttípusok betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task EditAsync(int id)
+    {
+        if (_isLoading)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            using var request =
+                new HttpRequestMessage(HttpMethod.Get, $"api/absence-types/{id}");
+
+            using var response = await Api.SendAsync(
+                request,
+                fallbackErrorMessage: "A távolléttípus betöltése sikertelen.");
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var item =
+                await response.Content.ReadFromJsonAsync<AbsenceTypeItem>(JsonOptions);
+
+            if (item is null)
+            {
+                Feedback.ShowError("A távolléttípus adatai nem olvashatók.");
+                return;
+            }
+
+            _absenceTypeId = item.AbsenceTypeId;
+            _code = item.Code;
+            _name = item.Name;
+            _isPaid = item.IsPaid;
+            _isActive = item.IsActive;
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A távolléttípus betöltése közben hiba történt.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_isSaving)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_code) ||
+            string.IsNullOrWhiteSpace(_name))
+        {
+            Feedback.ShowError("A kód és a megnevezés megadása kötelező.");
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            HttpRequestMessage request;
+
+            if (_absenceTypeId.HasValue)
+            {
+                var body = new UpdateRequest(
+                    _code.Trim(),
+                    _name.Trim(),
+                    _isPaid,
+                    _isActive);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Put,
+                    $"api/absence-types/{_absenceTypeId}")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+            else
+            {
+                var body = new CreateRequest(
+                    _code.Trim(),
+                    _name.Trim(),
+                    _isPaid);
+
+                request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    "api/absence-types")
+                {
+                    Content = JsonContent.Create(body, options: JsonOptions)
+                };
+            }
+
+            using (request)
+            using (var response = await Api.SendAsync(
+                request,
+                fallbackSuccessMessage: _absenceTypeId.HasValue
+                    ? "A távolléttípus adatai módosultak."
+                    : "A távolléttípus létrejött.",
+                fallbackErrorMessage: "A távolléttípus mentése sikertelen."))
+            {
+                if (!response.IsSuccessStatusCode)
+                    return;
+            }
+
+            await LoadAsync();
+            NewItem();
+        }
+        catch (HttpRequestException)
+        {
+            // A közös API-kliens már megjeleníti a kapcsolati hibaüzenetet.
+        }
+        catch
+        {
+            Feedback.ShowError("A távolléttípus mentése közben hiba történt.");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void NewItem()
+    {
+        _absenceTypeId = null;
+        _code = string.Empty;
+        _name = string.Empty;
+        _isPaid = false;
+        _isActive = true;
+    }
+
+    private async Task SearchOnEnter(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+            await LoadAsync();
+    }
+
+    private void BackToApps() => Navigation.NavigateTo("/apps");
+
+    private sealed record AbsenceTypeItem(
+        int AbsenceTypeId,
+        string Code,
+        string Name,
+        bool IsPaid,
+        bool IsActive);
+
+    private sealed record CreateRequest(
+        string Code,
+        string Name,
+        bool IsPaid);
+
+    private sealed record UpdateRequest(
+        string Code,
+        string Name,
+        bool IsPaid,
+        bool IsActive);
+}

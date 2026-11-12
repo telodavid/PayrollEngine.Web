@@ -1,0 +1,476 @@
+﻿@namespace PayrollEngine.Web.Components.Reports
+@using System.Text.Json
+@using PayrollEngine.Web.Models
+@using PayrollEngine.Web.Services
+@inject FeedbackService Feedback
+
+<div class="report-fields">
+    <div class="report-section-heading">
+        <div>
+            <strong>@Title</strong>
+            <p>@Fields.Count kiválasztott mező</p>
+        </div>
+        <button type="button"
+                class="report-secondary"
+                @onclick="AddAsync"
+                disabled="@(Disabled || AvailableFields.Count == 0)">
+            + Mező hozzáadása
+        </button>
+    </div>
+
+    @if (Fields.Count == 0)
+    {
+        <p class="report-muted">
+            Még nincs kiválasztott mező.
+        </p>
+    }
+
+    @for (var index = 0; index < Fields.Count; index++)
+    {
+        var itemIndex = index;
+        var item = Fields[index];
+
+        <details class="report-field-card report-collapsible-field"
+                 open="@Same(_expandedCode, item.Code)"
+                 @key="item.Code">
+            <summary class="report-field-summary">
+                <span class="report-field-number">@(itemIndex + 1)</span>
+                <span class="report-field-summary-name">
+                    <strong>
+                        @(string.IsNullOrWhiteSpace(item.DisplayName)
+                            ? $"Mező {itemIndex + 1}"
+                            : item.DisplayName)
+                    </strong>
+                    <small>@ReferenceLabel(item)</small>
+                </span>
+            </summary>
+
+            <div class="report-field-body">
+                <div class="report-field-title">
+                    <strong>Mező beállításai</strong>
+                    <div class="report-field-actions">
+                        <button type="button"
+                                class="report-icon-button"
+                                title="Feljebb"
+                                @onclick="() => MoveAsync(itemIndex, -1)"
+                                disabled="@(Disabled || itemIndex == 0)">
+                            ↑
+                        </button>
+                        <button type="button"
+                                class="report-icon-button"
+                                title="Lejjebb"
+                                @onclick="() => MoveAsync(itemIndex, 1)"
+                                disabled="@(Disabled || itemIndex == Fields.Count - 1)">
+                            ↓
+                        </button>
+                        <button type="button"
+                                class="report-danger report-small-button"
+                                @onclick="() => RemoveAsync(itemIndex)"
+                                disabled="@Disabled">
+                            Eltávolítás
+                        </button>
+                    </div>
+                </div>
+
+                <div class="report-field-grid">
+                    @if (Same(item.Value.Kind, "REFERENCE"))
+                    {
+                        <label class="report-reference-field">
+                            Adatmező *
+                            <input type="text"
+                                   list="@InputListId(item)"
+                                   value="@InputValue(item)"
+                                   @oninput="args => ReferenceChangedAsync(item, args)"
+                                   autocomplete="off"
+                                   disabled="@Disabled"
+                                   placeholder="Kezdj gépelni, majd válassz a találatokból" />
+
+                            <datalist id="@InputListId(item)">
+                                @foreach (var reference in AvailableFields)
+                                {
+                                    <option value="@OptionLabel(reference.Key, reference.Value)"></option>
+                                }
+                            </datalist>
+                        </label>
+                    }
+                    else
+                    {
+                        <label class="report-reference-field">
+                            Állandó érték
+                            <input value="@ConstantText(item)"
+                                   readonly />
+                        </label>
+                    }
+
+                    <label>
+                        Megjelenített név *
+                        <input @bind="item.DisplayName"
+                               @bind:after="NotifyChangedAsync"
+                               disabled="@Disabled" />
+                    </label>
+
+                    @if (AllowAggregation)
+                    {
+                        <label>
+                            Összesítés
+                            <select @bind="item.Aggregation"
+                                    @bind:after="NotifyChangedAsync"
+                                    disabled="@(Disabled || !Same(item.Value.Kind, "REFERENCE"))">
+                                <option value="NONE">Nincs</option>
+                                <option value="SUM">Összeg</option>
+                                <option value="COUNT">Darabszám</option>
+                                <option value="MIN">Minimum</option>
+                                <option value="MAX">Maximum</option>
+                            </select>
+                        </label>
+                    }
+                </div>
+
+                <details class="report-advanced-settings">
+                    <summary>További mezőbeállítások</summary>
+                    <div class="report-two-column report-spaced">
+                        <label>
+                            Kimeneti mezőazonosító *
+                            <input @bind="item.OutputName"
+                                   @bind:after="NotifyChangedAsync"
+                                   disabled="@Disabled" />
+                        </label>
+                        <label>
+                            Számformátum
+                            <input @bind="item.Format"
+                                   @bind:after="NotifyChangedAsync"
+                                   disabled="@Disabled"
+                                   placeholder="Például 0.00" />
+                        </label>
+                    </div>
+                </details>
+            </div>
+        </details>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = "Mezők";
+
+    [Parameter, EditorRequired]
+    public List<ReportDocumentFieldEditorDefinition> Fields
+    {
+        get;
+        set;
+    } = [];
+
+    [Parameter]
+    public IReadOnlyDictionary<string, string> AvailableFields
+    {
+        get;
+        set;
+    } = new Dictionary<string, string>();
+
+    [Parameter]
+    public bool AllowAggregation { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback Changed { get; set; }
+
+    private readonly string _instanceId = Guid.NewGuid().ToString("N");
+
+    private readonly Dictionary<string, string> _searchTexts =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private List<ReportDocumentFieldEditorDefinition>? _loadedFields;
+
+    private string? _expandedCode;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_loadedFields, Fields))
+        {
+            _loadedFields = Fields;
+            _searchTexts.Clear();
+            _expandedCode = null;
+        }
+    }
+
+    public bool Validate()
+    {
+        var codes = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        var outputNames = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in Fields)
+        {
+            if (item is null)
+            {
+                Feedback.ShowError("Érvénytelen mező szerepel a listában.");
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(item.Code) ||
+                !codes.Add(item.Code))
+            {
+                return Fail(
+                    item,
+                    "A mezők belső azonosítói nem lehetnek üresek vagy ismétlődők.");
+            }
+
+            if (string.IsNullOrWhiteSpace(item.DisplayName))
+            {
+                return Fail(
+                    item,
+                    "Minden mezőhöz adj meg megjelenített nevet.");
+            }
+
+            if (string.IsNullOrWhiteSpace(item.OutputName) ||
+                !outputNames.Add(item.OutputName.Trim()))
+            {
+                return Fail(
+                    item,
+                    "A kimeneti mezőazonosítók nem lehetnek üresek vagy ismétlődők.");
+            }
+
+            if (item.Value is null)
+            {
+                return Fail(item, "A mező értékbeállítása hiányzik.");
+            }
+
+            if (Same(item.Value.Kind, "REFERENCE"))
+            {
+                if (!AvailableFields.Keys.Any(reference =>
+                        Same(reference, item.Value.Reference)))
+                {
+                    return Fail(
+                        item,
+                        $"Válassz érvényes adatmezőt: {item.DisplayName}");
+                }
+            }
+            else if (!Same(item.Value.Kind, "CONSTANT"))
+            {
+                return Fail(
+                    item,
+                    $"Ismeretlen értékforrás: {item.DisplayName}");
+            }
+
+            if (AllowAggregation &&
+                !Same(item.Aggregation, "NONE") &&
+                !Same(item.Value.Kind, "REFERENCE"))
+            {
+                return Fail(
+                    item,
+                    "Összesítés csak adatmezőn használható.");
+            }
+        }
+
+        return true;
+    }
+
+    private async Task AddAsync()
+    {
+        if (Disabled || AvailableFields.Count == 0)
+        {
+            return;
+        }
+
+        var index = 1;
+
+        while (Fields.Any(item =>
+                   Same(item.OutputName, $"Field{index}")))
+        {
+            index++;
+        }
+
+        var item = new ReportDocumentFieldEditorDefinition
+        {
+            DisplayName = $"Mező {index}",
+            OutputName = $"Field{index}"
+        };
+
+        Fields.Add(item);
+        _expandedCode = item.Code;
+
+        await NotifyChangedAsync();
+    }
+
+    private async Task RemoveAsync(int index)
+    {
+        if (Disabled || index < 0 || index >= Fields.Count)
+        {
+            return;
+        }
+
+        var code = Fields[index].Code;
+
+        Fields.RemoveAt(index);
+        _searchTexts.Remove(code);
+
+        if (Same(_expandedCode, code))
+        {
+            _expandedCode = null;
+        }
+
+        await NotifyChangedAsync();
+    }
+
+    private async Task MoveAsync(int index, int offset)
+    {
+        var target = index + offset;
+
+        if (Disabled ||
+            index < 0 ||
+            target < 0 ||
+            index >= Fields.Count ||
+            target >= Fields.Count)
+        {
+            return;
+        }
+
+        (Fields[index], Fields[target]) =
+            (Fields[target], Fields[index]);
+
+        await NotifyChangedAsync();
+    }
+
+    private async Task ReferenceChangedAsync(
+        ReportDocumentFieldEditorDefinition item,
+        ChangeEventArgs args)
+    {
+        if (Disabled)
+        {
+            return;
+        }
+
+        var text = args.Value?.ToString() ?? "";
+
+        _searchTexts[item.Code] = text;
+
+        var matches = AvailableFields
+            .Where(reference =>
+                Same(reference.Key, text.Trim()) ||
+                Same(
+                    OptionLabel(reference.Key, reference.Value),
+                    text.Trim()))
+            .Take(2)
+            .ToArray();
+
+        if (matches.Length == 0)
+        {
+            matches = AvailableFields
+                .Where(reference =>
+                    Same(reference.Value, text.Trim()))
+                .Take(2)
+                .ToArray();
+        }
+
+        if (matches.Length == 1)
+        {
+            item.Value.Reference = matches[0].Key;
+
+            if (string.IsNullOrWhiteSpace(item.DisplayName) ||
+                item.DisplayName.StartsWith(
+                    "Mező ",
+                    StringComparison.Ordinal))
+            {
+                item.DisplayName = matches[0].Value;
+            }
+        }
+        else
+        {
+            item.Value.Reference = null;
+        }
+
+        await NotifyChangedAsync();
+    }
+
+    private string InputValue(
+        ReportDocumentFieldEditorDefinition item)
+    {
+        if (_searchTexts.TryGetValue(item.Code, out var text))
+        {
+            return text;
+        }
+
+        var reference = AvailableFields.FirstOrDefault(candidate =>
+            Same(candidate.Key, item.Value.Reference));
+
+        return reference.Key is not null
+            ? OptionLabel(reference.Key, reference.Value)
+            : item.Value.Reference ?? "";
+    }
+
+    private string ReferenceLabel(
+        ReportDocumentFieldEditorDefinition item)
+    {
+        if (Same(item.Value.Kind, "CONSTANT"))
+        {
+            return "Állandó érték";
+        }
+
+        var reference = AvailableFields.FirstOrDefault(candidate =>
+            Same(candidate.Key, item.Value.Reference));
+
+        return reference.Key is not null
+            ? reference.Value
+            : string.IsNullOrWhiteSpace(item.Value.Reference)
+                ? "Nincs adatmező kiválasztva"
+                : item.Value.Reference;
+    }
+
+    private string InputListId(
+        ReportDocumentFieldEditorDefinition item)
+    {
+        return $"document-field-{_instanceId}-{item.Code}";
+    }
+
+    private bool Fail(
+        ReportDocumentFieldEditorDefinition item,
+        string message)
+    {
+        _expandedCode = item.Code;
+        Feedback.ShowError(message);
+
+        return false;
+    }
+
+    private Task NotifyChangedAsync()
+    {
+        return Changed.InvokeAsync();
+    }
+
+    private static string OptionLabel(
+        string reference,
+        string label)
+    {
+        return $"{label} ({reference})";
+    }
+
+    private static string ConstantText(
+        ReportDocumentFieldEditorDefinition item)
+    {
+        if (item.Value.Constant is not { } value)
+        {
+            return "";
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? "",
+            JsonValueKind.Null or JsonValueKind.Undefined => "",
+            _ => value.GetRawText()
+        };
+    }
+
+    private static bool Same(
+        string? first,
+        string? second)
+    {
+        return string.Equals(
+            first,
+            second,
+            StringComparison.OrdinalIgnoreCase);
+    }
+}

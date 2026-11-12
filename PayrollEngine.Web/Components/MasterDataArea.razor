@@ -1,0 +1,73 @@
+﻿@page "/masterdata/{Area}"
+@inject NavigationManager Navigation
+@using PayrollEngine.Web.Pages
+
+<PageTitle>@AreaTitle</PageTitle>
+
+<main class="masterdata-area-page">
+    @if (Area == "employee-entry")
+    {
+        <EmployeeOnboarding />
+    }
+    else if (Area == "employee-exit")
+    {
+        <EmployeeTermination />
+    }
+    else if (Area == "companies")
+    {
+        <CompanyMaintenance />
+    }
+    else
+    {
+        <button class="back-button" @onclick="BackToApps">Vissza az alkalmazásokhoz</button>
+
+        <section class="masterdata-area-card">
+            <h1>@AreaTitle</h1>
+            <p>A cégadatok karbantartó felülete ezen az útvonalon készül majd el.</p>
+        </section>
+    }
+</main>
+
+@code {
+    [Parameter]
+    public string Area { get; set; } = string.Empty;
+
+    private string AreaTitle => Area switch
+    {
+        "employee-entry" => "Munkavállaló beléptetése",
+        "employee-exit" => "Munkavállaló kiléptetése",
+        "companies" => "Cégadatok karbantartás",
+        _ => "Törzsadat-karbantartás"
+    };
+
+    private void BackToApps()
+    {
+        Navigation.NavigateTo("/apps");
+    }
+}
+
+<style>
+    .masterdata-area-page {
+        max-width: 1000px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+    }
+
+    .masterdata-area-card {
+        margin-top: 1.5rem;
+        padding: 2rem;
+        border: 1px solid #eaecf0;
+        border-radius: 12px;
+        background: #fff;
+    }
+
+        .masterdata-area-card h1 {
+            margin-top: 0;
+            color: #101828;
+        }
+
+        .masterdata-area-card p {
+            margin-bottom: 0;
+            color: #667085;
+        }
+</style>
